@@ -267,7 +267,7 @@ function drawPlan() {
   draw({ ...plan.walk, mode: "walk" }, showBike);
 
   if (showBike) {
-    for (const s of [plan.bike.from_station, plan.bike.to_station]) {
+    for (const s of [plan.bike.fromStation, plan.bike.toStation]) {
       L.circleMarker([s.lat, s.lon], { radius: 8, color: "#d0112b", weight: 3, fillColor: "#ffffff", fillOpacity: 1 })
         .bindTooltip(esc(s.name))
         .addTo(routeLayer);

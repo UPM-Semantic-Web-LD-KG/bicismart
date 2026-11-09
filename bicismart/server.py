@@ -129,7 +129,7 @@ def route(
         # utilizables por si no hay bicis o huecos.
         cards = [
             enrich.station_card(plan["bike"][key]["id"], nearest=3, usable_only=True)
-            for key in ("from_station", "to_station")
+            for key in ("fromStation", "toStation")
         ]
     final_leg = plan["bike"]["legs"][-1] if plan["recommended"] == "bike" else plan["walk"]
     nearby = [

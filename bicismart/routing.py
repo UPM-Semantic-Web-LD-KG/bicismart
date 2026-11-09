@@ -112,8 +112,8 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
             "distance": sum(leg["distance"] for leg in legs),
             "dock": 2 * DOCK_S,
             "legs": legs,
-            "from_station": enrich.station_summary(start),
-            "to_station": enrich.station_summary(end),
+            "fromStation": enrich.station_summary(start),
+            "toStation": enrich.station_summary(end),
             "estimated": any(leg["estimated"] for leg in legs),
         }
 
