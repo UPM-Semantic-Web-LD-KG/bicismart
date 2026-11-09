@@ -8,10 +8,9 @@ viajan entre la web y la API tienen la forma `street:<calle>` (nombre de su IRI,
 
 import re
 from dataclasses import dataclass
-from functools import cache
 
 from . import geo, graph, wikidata
-from .names import fold, pretty, district_names
+from .names import district_names, fold, pretty
 
 STREET_TYPES = {
     "C", "CL", "CALLE", "AV", "AVD", "AVDA", "AVENIDA", "P", "PS", "PASEO", "PL", "PZA", "PLAZA",
@@ -36,9 +35,9 @@ class Endpoint:
     approximate: bool = False
 
 
-@cache
 def all_stations() -> list[dict]:
-    return graph.query("stations")
+    """Todas las estaciones del grafo (consulta `stations`), ejecutada una sola vez por proceso."""
+    return graph.query_cached("stations")
 
 
 def parse_street(text: str) -> tuple[str, str | None]:

@@ -57,13 +57,40 @@ def _python(term):
     return term.value
 
 
-def query(name: str, **params) -> list[dict]:
-    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python."""
-    text = _template(name).substitute({key: _term(value) for key, value in params.items()})
+def _text(name: str, params: dict) -> str:
+    return _template(name).substitute({key: _term(value) for key, value in params.items()})
+
+
+def _run(name: str, text: str) -> list[dict]:
     with trace.record("local", name, text) as entry:
         result = store.query(text)
         names = [variable.value for variable in result.variables]
         rows = [dict(zip(names, (_python(solution[n]) for n in names))) for solution in result]
+        entry["rows"] = len(rows)
+    return rows
+
+
+def query(name: str, **params) -> list[dict]:
+    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python."""
+    return _run(name, _text(name, params))
+
+
+_results: dict[str, list[dict]] = {}
+
+
+def query_cached(name: str, **params) -> list[dict]:
+    """Como `query`, pero solo ejecuta la consulta la primera vez y después reutiliza las filas.
+
+    El grafo no cambia mientras corre la app, así que el resultado vale para siempre. Cada llamada
+    queda en el registro de la petición: como ejecutada la primera vez y como «en caché» las
+    siguientes. Las filas se comparten entre llamadas: no hay que modificarlas.
+    """
+    text = _text(name, params)
+    if text not in _results:
+        _results[text] = _run(name, text)
+        return _results[text]
+    rows = _results[text]
+    with trace.record("local", name, text, cached=True) as entry:
         entry["rows"] = len(rows)
     return rows
 

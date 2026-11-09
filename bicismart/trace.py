@@ -30,3 +30,15 @@ def record(source: str, name: str, text: str, cached: bool = False):
         entries = _entries.get()
         if entries is not None:
             entries.append(entry)
+
+
+def note(comment: str) -> None:
+    """Comenta en la última consulta registrada qué se hace con sus filas.
+
+    Se llama justo después de la consulta, así que el comentario sale igual tanto si se ha
+    ejecutado como si el resultado estaba en caché (`graph.query_cached`).
+    """
+    entries = _entries.get()
+    if entries:
+        lines = "\n".join(f"# {line}" for line in comment.splitlines())
+        entries[-1]["text"] = entries[-1]["text"].rstrip() + "\n\n" + lines
