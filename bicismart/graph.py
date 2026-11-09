@@ -53,12 +53,18 @@ def _template(name: str) -> Template:
 
 
 def _term(value) -> str:
+    """Parámetro de una consulta -> término SPARQL serializado: un IRI o un literal tal cual, y
+    cualquier otro valor convertido en literal (un texto, escapado).
+    """
     if isinstance(value, ox.NamedNode | ox.Literal):
         return str(value)
     return str(ox.Literal(value))
 
 
 def _python(term):
+    """Término de un resultado -> valor Python: int, float o bool según su tipo XSD y, si no,
+    su texto (también los IRI). Una variable sin valor da None.
+    """
     if term is None:
         return None
     if isinstance(term, ox.Literal):

@@ -73,6 +73,10 @@ def route(profile: str, a: Point, b: Point) -> dict:
 
 
 def _candidates(endpoint: Endpoint, other: Endpoint, pool: list[dict]) -> list[dict]:
+    """Estaciones que se prueban en un extremo. Si tiene estaciones propias (una calle con
+    estaciones o una estación elegida), las suyas más cercanas al otro extremo; si no, las de
+    `pool` más cercanas a él.
+    """
     if endpoint.stations:
         return geo.nearest(endpoint.stations, other.lat, other.lon, CANDIDATES)
     return geo.nearest(pool, endpoint.lat, endpoint.lon, CANDIDATES)

@@ -151,6 +151,7 @@ def _thumb(url: str | None) -> str | None:
 
 
 def qid(iri: str) -> str:
+    """IRI de una entidad de Wikidata -> 'Q160112'."""
     return iri.removeprefix(ENTITY)
 
 
@@ -160,6 +161,7 @@ def page_url(entity_qid: str) -> str:
 
 
 def street_query(qids: list[str]) -> str:
+    """Texto de la consulta de datos de las calles `qids`."""
     return STREETS_QUERY.substitute(items=" ".join(f"wd:{q}" for q in qids))
 
 
@@ -207,6 +209,7 @@ def street_facts(street_qid: str) -> dict | None:
 
 
 def places_query(key: str) -> str:
+    """Texto de la consulta de lugares de la categoría `key` alrededor de CENTER."""
     category = CATEGORIES[key]
     return PLACES_QUERY.substitute(
         label=category.label.lower(), cls=category.wikidata_class,
@@ -237,11 +240,13 @@ def _fetch_places() -> list[dict]:
 
 
 def places() -> list[dict]:
+    """Lugares de interés cargados (vacío hasta que termina `prefetch`)."""
     with _lock:
         return _places
 
 
 def place(place_qid: str) -> dict | None:
+    """Lugar de interés cargado con ese QID, o None."""
     return next((p for p in places() if p["qid"] == place_qid), None)
 
 

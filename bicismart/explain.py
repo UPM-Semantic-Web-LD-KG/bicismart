@@ -17,6 +17,7 @@ EXPLORE_RADII = (300, 500, 1000)  # metros
 
 
 def _endpoint(endpoint: Endpoint) -> dict:
+    """Un origen, destino o centro ya situado, tal como lo recibe la web."""
     return {
         "label": endpoint.label,
         "lat": endpoint.lat,

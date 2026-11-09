@@ -164,6 +164,14 @@ def _station_results(text: str) -> list[dict]:
 
 
 def search(text: str, near: tuple[float, float] | None = None) -> list[dict]:
+    """Sugerencias para lo que escribe el usuario, en este orden: lugares del tipo pedido (si el
+    texto es un tipo, como «un museo»), calles del Callejero, lugares de Wikidata por nombre y
+    estaciones BiciMAD.
+
+    Cada sugerencia es {kind, ref, label, detail, source} y su `ref` se pasa después a `resolve`.
+    `near` es el origen ya elegido, (lat, lon): los lugares de un tipo se ordenan por distancia a
+    él o, si no hay, a la Puerta del Sol. Con menos de 2 caracteres no se busca nada.
+    """
     text = text.strip()
     if len(text) < 2:
         return []
@@ -224,7 +232,12 @@ def _street(key: str) -> Endpoint:
 
 
 def resolve(ref: str, label: str | None = None) -> Endpoint:
-    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida."""
+    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida.
+
+    `ref` tiene una de las formas del principio del módulo (`street:`, `place:`, `station:` o
+    `pt:`). `label` solo se usa para un punto del mapa, que no tiene nombre propio; los demás
+    toman el suyo del grafo o de Wikidata.
+    """
     kind, _, value = ref.partition(":")
     if kind == "pt":
         try:

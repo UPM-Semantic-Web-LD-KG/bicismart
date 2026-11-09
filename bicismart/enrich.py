@@ -24,6 +24,11 @@ def station_summary(row: dict) -> dict:
 def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -> dict:
     """Ficha de una estación: sus datos de BiciMAD, el Callejero y Wikidata (`blocks`) y sus
     `nearest` estaciones más cercanas (`nearestStations`, ver `nearest_stations`).
+
+    Cada bloque lleva su fuente (`source`): BiciMAD siempre; el Callejero si la estación está
+    enlazada a una calle (bm:locatedOnStreet), y Wikidata si esa calle tiene owl:sameAs y hay
+    datos suyos. Con `usable_only` solo cuentan como cercanas las que se pueden usar, que es lo
+    que interesa como alternativa en una ruta. Lanza NotFound si la estación no existe.
     """
     rows = graph.query("station_detail", id=station_id)
     if not rows:

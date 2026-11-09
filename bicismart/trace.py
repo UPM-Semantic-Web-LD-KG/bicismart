@@ -1,6 +1,7 @@
 """Registro de las consultas hechas durante una petición, para el panel «¿por qué ontología?»."""
 
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -15,7 +16,7 @@ def start() -> list[dict]:
 
 
 @contextmanager
-def record(source: str, name: str, text: str, cached: bool = False):
+def record(source: str, name: str, text: str, cached: bool = False) -> Iterator[dict]:
     """Mide una consulta y la añade al registro de la petición (si hay uno abierto).
 
     `source` es "local" (grafo RDF del grupo), "wikidata" u "osrm". Quien llama rellena
