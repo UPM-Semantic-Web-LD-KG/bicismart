@@ -24,6 +24,7 @@ def station_card(station_id: str) -> dict:
             ["Estado", STATES.get(s["state"], s["state"]) + ("" if s["activated"] else " (desactivada)")],
             ["Bases", str(s["capacity"])],
             ["Bases inutilizables", str(s["unavailable"])],
+            ["Coordenadas", f"{s['lat']:.5f}, {s['lon']:.5f}"],
         ],
     }]
 
