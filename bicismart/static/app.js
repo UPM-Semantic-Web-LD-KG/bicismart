@@ -12,7 +12,6 @@ const GROUPS = { street: "Calles · Callejero", place: "Lugares · Wikidata", st
 const SOL = [40.416775, -3.70379];
 const EXAMPLES = ["Bravo Murillo 120", "Museo del Prado", "un parque", "Agustín de Foxá"];
 const EXPLORE_EXAMPLES = ["Museo del Prado", "Alcalá", "un parque", "Metro Sol"];
-const RADII = { 300: "300 m", 500: "500 m", 1000: "1 km" };
 
 // mode: "route" (origen y destino) o "explore" (estaciones cerca de un lugar, FR2).
 // center es el lugar elegido en el campo de Explorar; explore, la última respuesta de
@@ -59,19 +58,15 @@ function minutes(seconds) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-function km(meters) {
+// Única función de formato de distancias del frontend: «1,2 km» o, por debajo del kilómetro, en
+// metros redondeados a la decena. Es la misma regla que geocode._distance_label en Python, que la
+// usa en los textos que monta el servidor (las sugerencias de «un parque»).
+function distanceLabel(meters) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(meters / 10) * 10} m`;
 }
 
 function https(url) {
   return url ? url.replace(/^http:\/\//, "https://") : url;
-}
-
-function distance(lat1, lon1, lat2, lon2) {
-  const rad = Math.PI / 180;
-  const a = Math.sin(((lat2 - lat1) * rad) / 2) ** 2
-    + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lon2 - lon1) * rad) / 2) ** 2;
-  return 2 * 6371000 * Math.asin(Math.sqrt(a));
 }
 
 async function api(path, params = {}) {
@@ -496,7 +491,7 @@ $("#locate").addEventListener("click", () => {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude: lat, longitude: lon } = position.coords;
-      if (distance(lat, lon, ...SOL) > 20000) {
+      if (map.distance([lat, lon], SOL) > 20000) {
         return showStatus("Tu ubicación está fuera de Madrid: haz clic en el mapa para elegir el origen.");
       }
       showStatus("");
@@ -530,7 +525,7 @@ function optionCard(mode, title, option, recommended) {
   return html`<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-action="option" data-mode="${mode}">
     <div class="mode">${title}</div>
     <div class="time">${minutes(option.duration)}</div>
-    <div class="meta">${km(option.distance)}${option.estimated ? html` · ${badge("warn", "estimado")}` : ""}</div>
+    <div class="meta">${distanceLabel(option.distance)}${option.estimated ? html` · ${badge("warn", "estimado")}` : ""}</div>
     ${recommended ? html`<span class="best">Más rápido</span>` : ""}
   </button>`;
 }
@@ -544,7 +539,7 @@ function endpointLine(role, endpoint) {
 
 // Distancia de un tramo, marcada si es una estimación en línea recta (sin OSRM).
 function legDistance(leg) {
-  return `${km(leg.distance)}${leg.estimated ? " · estimado" : ""}`;
+  return `${distanceLabel(leg.distance)}${leg.estimated ? " · estimado" : ""}`;
 }
 
 // Paso «Camina…» de un tramo a pie, hasta leg.to.
@@ -595,14 +590,14 @@ function stationCard(station, title) {
 
 function nearbyCard(places, title) {
   const items = places.map((p) => html`<li><a href="${p.link}" target="_blank" rel="noopener">${p.label}</a>
-    <span>${p.categories.join(", ")} · ${km(p.distance)}</span></li>`);
+    <span>${p.categories.join(", ")} · ${distanceLabel(p.distance)}</span></li>`);
   return card(title, "wikidata", html`<ul class="places">${items}</ul>`);
 }
 
 // Una estación en una lista: enlace a su ficha, estado, bases y distancia. En Explorar, las
 // estaciones de la calle buscada (bm:locatedOnStreet) se marcan «en la calle».
 function stationItem(s) {
-  const where = s.onStreet ? badge("callejero", "en la calle") : km(s.distance);
+  const where = s.onStreet ? badge("callejero", "en la calle") : distanceLabel(s.distance);
   return html`<li><a href="#" data-action="station" data-station="${s.id}">${s.name}</a>
     <span>${s.usable ? "" : html`${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${where}</span></li>`;
 }
@@ -839,9 +834,14 @@ function stationsLabel(count) {
   return count === 1 ? "1 estación" : `${count} estaciones`;
 }
 
+// Nombre de un radio de Explorar: el texto de su botón en el formulario («300 m», «1 km»).
+function radiusLabel(radius) {
+  return $(`#explore-form input[name="radius"][value="${radius}"] + span`).textContent;
+}
+
 // Lista de estaciones del radio, con los filtros del mapa aplicados y su recuento.
 function exploreStationsCard(data) {
-  const radius = RADII[data.radius];
+  const radius = radiusLabel(data.radius);
   const total = data.stations.length;
   const shown = data.stations.filter(passesFilters);
   let count;
