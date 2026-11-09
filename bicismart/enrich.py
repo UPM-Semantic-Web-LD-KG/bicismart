@@ -70,15 +70,11 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
         + f"\n# Se usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
         cached=True,
     ) as entry:
-        found = sorted(
-            ((geo.distance_m(lat, lon, p["lat"], p["lon"]), p) for p in places),
-            key=lambda pair: pair[0],
-        )
         found = [
             {**p, "distance": round(d), "link": f"https://www.wikidata.org/wiki/{p['qid']}",
              "categories": [wikidata.CATEGORIES[c][0] for c in p["categories"]]}
-            for d, p in found if d <= radius_m
-        ][:limit]
+            for d, p in geo.by_distance(places, lat, lon, k=limit, max_m=radius_m)
+        ]
         entry["rows"] = len(found)
     return found
 
@@ -103,10 +99,7 @@ def nearest_stations(
     """
     stations = graph.query_cached("stations")
     others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
-    found = [
-        _station_row(s, geo.distance_m(lat, lon, s["lat"], s["lon"]))
-        for s in geo.nearest(others, lat, lon, limit)
-    ]
+    found = [_station_row(s, d) for d, s in geo.by_distance(others, lat, lon, k=limit)]
     trace.note(
         f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
         + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
@@ -125,16 +118,10 @@ def stations_within(
     cuenta: la que hace de centro.
     """
     stations = graph.query_cached("stations")
-    by_distance = sorted(
-        (
-            (min(geo.distance_m(lat, lon, s["lat"], s["lon"]) for lat, lon in points), s)
-            for s in stations if s["id"] != exclude
-        ),
-        key=lambda pair: pair[0],
-    )
+    others = [s for s in stations if s["id"] != exclude]
     found = [
         {**_station_row(s, d), "lat": s["lat"], "lon": s["lon"]}
-        for d, s in by_distance if d <= radius_m
+        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
     ]
     if len(points) == 1:
         where = "de ({:.5f}, {:.5f}) ".format(*points[0])

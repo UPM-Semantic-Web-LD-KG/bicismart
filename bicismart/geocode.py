@@ -85,10 +85,10 @@ def _category_results(key: str, near: tuple[float, float] | None) -> list[dict]:
             "kind": "place",
             "ref": f"place:{p['qid']}",
             "label": p["label"],
-            "detail": f"{label} · a {_distance_label(geo.distance_m(lat, lon, p['lat'], p['lon']))} {where}",
+            "detail": f"{label} · a {_distance_label(meters)} {where}",
             "source": "wikidata",
         }
-        for p in geo.nearest(places, lat, lon, 5)
+        for meters, p in geo.by_distance(places, lat, lon, k=5)
     ]
 
 
