@@ -130,6 +130,11 @@ def route(
             enrich.station_card(plan["bike"]["from_station"]["id"]),
             enrich.station_card(plan["bike"]["to_station"]["id"]),
         ]
+        # Alternativas a la estación de salida y a la de llegada, por si no hay bicis o huecos.
+        for card in cards:
+            card["nearestStations"] = enrich.nearest_stations(
+                card["id"], card["lat"], card["lon"], limit=3, usable_only=True
+            )
     final_leg = plan["bike"]["legs"][-1] if plan["recommended"] == "bike" else plan["walk"]
     nearby = [
         place for place in enrich.nearby_places(*final_leg["geometry"][-1])
