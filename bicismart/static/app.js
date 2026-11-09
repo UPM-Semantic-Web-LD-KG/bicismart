@@ -835,6 +835,10 @@ async function checkStatus() {
   }
 }
 
+// Los formularios de Ruta y Explorar no se envían: cada campo actúa al elegir una sugerencia.
+document.querySelectorAll("form.trip").forEach((form) => {
+  form.addEventListener("submit", (event) => event.preventDefault());
+});
 setupField("from");
 setupField("to");
 setupField("center", (item) => setCenter({ ref: item.ref, label: item.label }));
