@@ -17,6 +17,11 @@ DETOUR = 1.3
 DOCK_S = 60  # sacar o dejar la bici en la base
 CANDIDATES = 5  # estaciones que se prueban en cada extremo
 
+# Fallos de OSRM con los que la ruta sigue, con la estimación: la red o HTTP y una respuesta con
+# un formato inesperado (KeyError o IndexError si falta un dato; TypeError si "routes" es null o
+# la respuesta es una lista; ValueError si no es JSON). Es el criterio de wikidata.ERRORS.
+ERRORS = (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError)
+
 _cache: dict[str, dict] = {}
 
 Point = tuple[float, float]
@@ -56,7 +61,7 @@ def route(profile: str, a: Point, b: Point) -> dict:
                 "geometry": [[lat, lon] for lon, lat in best["geometry"]["coordinates"]],
                 "estimated": False,
             }
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as error:
+        except ERRORS as error:
             entry["error"] = str(error) or type(error).__name__
     meters = _estimated_m(a, b)
     return {
