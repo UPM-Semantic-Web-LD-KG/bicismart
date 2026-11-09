@@ -391,6 +391,9 @@ function setupField(role, onChoose = (item) => setEndpoint(role, { ref: item.ref
   };
 
   const choose = (item) => {
+    // Descarta las sugerencias que aún estén en camino, para que no vuelvan a abrir la lista.
+    clearTimeout(timer);
+    sequence += 1;
     close();
     onChoose(item);
   };
