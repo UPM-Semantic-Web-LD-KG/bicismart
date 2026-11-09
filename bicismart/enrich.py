@@ -56,9 +56,9 @@ def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -
             "title": facts.get("label") or pretty(s["streetName"]),
             "description": facts.get("description"),
             "image": facts.get("image"),
-            "link": f"https://www.wikidata.org/wiki/{facts['qid']}",
+            "link": wikidata.page_url(facts["qid"]),
             "namedAfter": [
-                {**person, "link": f"https://www.wikidata.org/wiki/{person['qid']}"}
+                {**person, "link": wikidata.page_url(person["qid"])}
                 for person in facts.get("namedAfter", [])
             ],
         })
@@ -83,7 +83,7 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
         cached=True,
     ) as entry:
         found = [
-            {**p, "distance": round(d), "link": f"https://www.wikidata.org/wiki/{p['qid']}",
+            {**p, "distance": round(d), "link": wikidata.page_url(p["qid"]),
              "categories": [wikidata.CATEGORIES[c][0] for c in p["categories"]]}
             for d, p in geo.by_distance(places, lat, lon, k=limit, max_m=radius_m)
         ]

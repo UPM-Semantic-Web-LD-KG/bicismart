@@ -7,11 +7,10 @@ tiempos reales de los tramos elegidos. Si OSRM no responde, se muestran las esti
 
 import httpx
 
-from . import enrich, geo, graph, trace
+from . import USER_AGENT, enrich, geo, graph, trace
 from .geocode import Endpoint
 
 OSRM = "https://routing.openstreetmap.de/routed-{profile}/route/v1/driving/{coords}?overview=full&geometries=geojson"
-USER_AGENT = "BiciSmart/0.1 (UPM Semantic Web coursework)"
 SPEED = {"foot": 5 / 3.6, "bike": 15 / 3.6}  # m/s
 DETOUR = 1.3
 DOCK_S = 60  # sacar o dejar la bici en la base

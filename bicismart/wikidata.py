@@ -12,13 +12,13 @@ from string import Template
 
 import httpx
 
-from . import graph, trace
+from . import USER_AGENT, graph, trace
 
 log = logging.getLogger(__name__)
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "BiciSmart/0.1 (UPM Semantic Web coursework)"
 ENTITY = "http://www.wikidata.org/entity/"
+PAGE = "https://www.wikidata.org/wiki/"
 DATA = graph.ROOT / "data"
 STREETS_CACHE = DATA / "wikidata-streets.json"
 PLACES_CACHE = DATA / "wikidata-places.json"
@@ -142,6 +142,11 @@ def _thumb(url: str | None) -> str | None:
 
 def qid(iri: str) -> str:
     return iri.removeprefix(ENTITY)
+
+
+def page_url(entity_qid: str) -> str:
+    """'Q160112' -> URL de la página de la entidad en wikidata.org, para enlazarla en la web."""
+    return PAGE + entity_qid
 
 
 def street_query(qids: list[str]) -> str:

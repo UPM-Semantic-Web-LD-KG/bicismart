@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parent.parent
 GRAPH_DIR = ROOT / "graph"
 QUERIES = Path(__file__).parent / "queries"
 
-BM = "https://bicismart.madrid.data.es/ontology#"
 STREET = "https://bicismart.madrid.data.es/resource/Street/"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 
