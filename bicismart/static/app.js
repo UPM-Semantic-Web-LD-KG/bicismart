@@ -61,16 +61,32 @@ async function api(path, params = {}) {
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null) url.searchParams.set(key, value);
   }
-  const response = await fetch(url);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.detail || response.statusText);
+  let response;
+  try {
+    response = await fetch(url);
+  } catch {
+    throw new Error("No se ha podido conectar con el servidor. Comprueba que BiciSmart sigue en marcha.");
+  }
+  // Un fallo inesperado del servidor (un 500 en texto plano, por ejemplo) no trae JSON.
+  const json = response.headers.get("content-type")?.includes("application/json");
+  const body = json ? await response.json().catch(() => undefined) : undefined;
+  if (!response.ok) {
+    const detail = typeof body?.detail === "string" ? body.detail : null;
+    throw new Error(detail ?? `El servidor no ha podido atender la petición (error ${response.status}).`);
+  }
+  if (body === undefined) throw new Error("La respuesta del servidor no tiene el formato esperado.");
   return body;
 }
 
-function showStatus(text) {
+// Avisos bajo el formulario. El de las estaciones del mapa (slot "stations") se queda fijo delante
+// de los demás (descarga de Wikidata, ubicación), que se sustituyen unos a otros.
+const statusMessages = { stations: "", current: "" };
+
+function showStatus(text, slot = "current") {
+  statusMessages[slot] = text;
   const status = $("#status");
-  status.textContent = text;
-  status.hidden = !text;
+  status.textContent = Object.values(statusMessages).filter(Boolean).join(" ");
+  status.hidden = !status.textContent;
 }
 
 // La ruta, Explorar y la ficha de una estación piden datos y los pintan en el panel de resultados.
@@ -191,7 +207,17 @@ function styleStations() {
 }
 
 async function loadStations() {
-  const stations = await api("/api/stations");
+  let stations;
+  try {
+    stations = await api("/api/stations");
+  } catch (error) {
+    // Sin estaciones en el mapa siguen funcionando las rutas, Explorar y las fichas. Los filtros se
+    // desactivan para que el recuento no pase a «0 de 0 estaciones».
+    $("#filter-count").textContent = "No se han podido cargar las estaciones.";
+    $(".station-filter fieldset").disabled = true;
+    showStatus(`No se han podido cargar las estaciones del mapa. ${error.message} Recarga la página para volver a intentarlo.`, "stations");
+    return;
+  }
   for (const s of stations) {
     const marker = L.circleMarker([s.lat, s.lon], stationStyle(s))
       .bindPopup(() => {
