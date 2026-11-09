@@ -128,19 +128,26 @@ stationFilter.onAdd = () => {
 };
 stationFilter.addTo(map);
 
-function applyStationFilters() {
+// Si una estación pasa los filtros del mapa. La lista de Explorar usa los mismos.
+function passesFilters(station) {
   const onlyUsable = $("#filter-usable").checked;
   const minCapacity = Number($("#filter-capacity").value);
+  return !(onlyUsable && !station.usable) && station.capacity >= minCapacity;
+}
+
+function applyStationFilters() {
   let visible = 0;
   for (const { station, marker } of stationMarkers) {
-    if ((onlyUsable && !station.usable) || station.capacity < minCapacity) {
-      stationLayer.removeLayer(marker);
-    } else {
+    if (passesFilters(station)) {
       stationLayer.addLayer(marker);
       visible += 1;
+    } else {
+      stationLayer.removeLayer(marker);
     }
   }
   $("#filter-count").textContent = `${visible} de ${stationMarkers.length} estaciones`;
+  const list = $("#explore-stations");
+  if (list && state.mode === "explore" && state.explore) list.outerHTML = exploreStationsCard(state.explore);
 }
 
 // Estaciones dentro del radio de Explorar (id → estación), o null si no se está explorando.
@@ -183,6 +190,7 @@ async function loadStations() {
         }, '<button type="button" data-act="card">Ver ficha</button>'));
         return div;
       });
+    marker.on("click", () => { if (state.mode === "explore") showStation(s.id); });
     stationMarkers.push({ station: s, marker });
   }
   applyStationFilters();
@@ -518,13 +526,14 @@ function nearestStationsCard(stations, title = "Estaciones más cercanas") {
   return `<div class="card"><h2>${esc(title)} ${badge("bicimad")}</h2><ul class="places">${stations.map(stationItem).join("")}</ul></div>`;
 }
 
-// Los enlaces de las listas de estaciones abren la ficha de esa estación.
-function bindStationLinks() {
-  results.querySelectorAll("[data-station]").forEach((link) => link.addEventListener("click", (event) => {
-    event.preventDefault();
-    showStation(link.dataset.station);
-  }));
-}
+// Los enlaces de las listas de estaciones abren la ficha de esa estación. Se escucha en el panel
+// para que sigan funcionando cuando se vuelve a pintar solo una parte (filtros en Explorar).
+results.addEventListener("click", (event) => {
+  const link = event.target.closest("[data-station]");
+  if (!link) return;
+  event.preventDefault();
+  showStation(link.dataset.station);
+});
 
 function verdictClass(text) {
   if (text.startsWith("No")) return "no";
@@ -580,7 +589,6 @@ function renderPlan() {
     renderPlan();
     drawPlan();
   }));
-  bindStationLinks();
   bindWhy();
 }
 
@@ -605,12 +613,26 @@ async function computeRoute() {
   }
 }
 
+// Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta.
+function backButton() {
+  if (state.mode === "explore" && state.explore) {
+    return { html: '<button type="button" class="back">← Volver a la lista</button>', go: showExplore };
+  }
+  if (state.mode === "route" && state.plan) {
+    return { html: '<button type="button" class="back">← Volver a la ruta</button>', go: () => { renderPlan(); drawPlan(); } };
+  }
+  return null;
+}
+
 async function showStation(id) {
+  const mode = state.mode;
   results.innerHTML = '<p class="loading">Cargando la estación…</p>';
   try {
     const data = await api(`/api/station/${encodeURIComponent(id)}`);
+    if (state.mode !== mode) return;
     const s = data.station;
-    let html = state.plan ? '<button type="button" class="back">← Volver a la ruta</button>' : "";
+    const back = backButton();
+    let html = back ? back.html : "";
     html += stationCard(s, "Estación");
     html += '<div class="card" id="station-actions"></div>';
     if (data.nearestStations.length) html += nearestStationsCard(data.nearestStations);
@@ -618,12 +640,11 @@ async function showStation(id) {
     html += whyPanel(null, data.queries);
     results.innerHTML = html;
     $("#station-actions").append(actions((act) => usePlace(act, { ref: `station:${s.id}`, label: s.name })));
-    bindStationLinks();
-    $(".back", results)?.addEventListener("click", () => { renderPlan(); drawPlan(); });
+    if (back) $(".back", results).addEventListener("click", back.go);
     bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
   } catch (error) {
-    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (state.mode === mode) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
 }
 
@@ -697,29 +718,42 @@ $("#explore-form").addEventListener("change", (event) => {
   if (place) exploreAround(place, false);
 });
 
-function centerCard(center) {
+function centerCard(center, place) {
+  const [kind, id] = place.ref.split(":");
+  const card = kind === "station" ? `<p class="sub"><a href="#" data-station="${esc(id)}">Ver la ficha de la estación</a></p>` : "";
   return `<div class="card center-card"><p class="kicker">Lugar</p>
     <h2>${esc(center.label)} ${badge(center.source)} ${center.approximate ? badge("warn", "aproximado") : ""}</h2>
-    <p class="sub">${esc(center.note)}</p></div>`;
+    <p class="sub">${esc(center.note)}</p>${card}</div>`;
 }
 
+function stationsLabel(count) {
+  return count === 1 ? "1 estación" : `${count} estaciones`;
+}
+
+// Lista de estaciones del radio, con los filtros del mapa aplicados y su recuento.
 function exploreStationsCard(data) {
   const radius = RADII[data.radius];
-  const count = data.stations.length;
-  let body;
-  if (!count) {
-    body = `<p class="sub">No hay ninguna estación a ${radius} o menos.${data.radius < 1000 ? " Prueba con un radio mayor." : ""}</p>`;
+  const total = data.stations.length;
+  const shown = data.stations.filter(passesFilters);
+  let count;
+  if (!total) {
+    count = `No hay ninguna estación a ${radius} o menos.${data.radius < 1000 ? " Prueba con un radio mayor." : ""}`;
+  } else if (shown.length === total) {
+    count = `${stationsLabel(total)}, de la más cercana a la más lejana en línea recta.`;
+  } else if (!shown.length) {
+    count = `Los filtros del mapa ocultan ${total === 1 ? "la estación" : `las ${total} estaciones`} del radio.`;
   } else {
-    body = `<p class="sub">${count === 1 ? "1 estación" : `${count} estaciones`}, de la más cercana a la más lejana en línea recta.</p>
-      <ul class="places">${data.stations.map(stationItem).join("")}</ul>`;
+    count = `${shown.length} de ${stationsLabel(total)}, de la más cercana a la más lejana en línea recta. Los filtros del mapa ocultan el resto.`;
   }
-  return `<div class="card"><h2>Estaciones a ${radius} o menos ${badge("bicimad")}</h2>${body}</div>`;
+  const list = shown.length ? `<ul class="places">${shown.map(stationItem).join("")}</ul>` : "";
+  return `<div class="card" id="explore-stations"><h2>Estaciones a ${radius} o menos ${badge("bicimad")}</h2>
+    <p class="sub">${count}</p>${list}</div>`;
 }
 
 function renderExplore() {
   const data = state.explore;
-  results.innerHTML = centerCard(data.center) + exploreStationsCard(data) + whyPanel(data.contributions, data.queries);
-  bindStationLinks();
+  results.innerHTML = centerCard(data.center, data.place) + exploreStationsCard(data)
+    + whyPanel(data.contributions, data.queries);
   bindWhy();
 }
 
