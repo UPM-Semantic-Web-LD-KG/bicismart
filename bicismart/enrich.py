@@ -1,6 +1,6 @@
-"""Ficha de una estación y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
+"""Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
 
-from . import geo, graph, trace, wikidata
+from . import geo, geocode, graph, trace, wikidata
 from .names import district_names, pretty
 
 STATES = {
@@ -79,4 +79,32 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
             for d, p in found if d <= radius_m
         ][:limit]
         entry["rows"] = len(found)
+    return found
+
+
+def nearest_stations(station_id: str, lat: float, lon: float, limit: int = 5) -> list[dict]:
+    """Las `limit` estaciones más cercanas a una estación, sin contarla, en línea recta."""
+    cached = geocode.all_stations.cache_info().currsize > 0
+    stations = geocode.all_stations()
+    others = [s for s in stations if s["id"] != station_id]
+    found = [
+        {
+            "id": s["id"],
+            "name": s["name"],
+            "distance": round(geo.distance_m(lat, lon, s["lat"], s["lon"])),
+            "capacity": s["capacity"],
+            "usable": s["usable"],
+        }
+        for s in geo.nearest(others, lat, lon, limit)
+    ]
+    if cached:
+        # Si no estaban en memoria, graph.query ya ha registrado la consulta al cargarlas.
+        with trace.record(
+            "local", "stations",
+            (graph.QUERIES / "stations.rq").read_text(encoding="utf-8")
+            + f"\n# Se usan las {len(stations)} estaciones en caché y se eligen las {limit} más cercanas"
+            + "\n# en línea recta (haversine), sin contar la propia estación.",
+            cached=True,
+        ) as entry:
+            entry["rows"] = len(found)
     return found
