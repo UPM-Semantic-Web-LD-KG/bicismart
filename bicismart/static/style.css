@@ -40,6 +40,15 @@ body {
 .brand h1 { margin: 0; font-size: 1.35rem; letter-spacing: -0.01em; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
 
+.tabs { display: flex; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.tabs [role="tab"] {
+  flex: 1; padding: 10px 0 8px; border: none; border-bottom: 3px solid transparent; margin-bottom: -1px;
+  background: none; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer;
+}
+.tabs [role="tab"]:hover { color: var(--ink); }
+.tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tabs [role="tab"]:focus-visible { outline: 2px solid var(--wikidata); outline-offset: -2px; }
+
 .trip { padding: 14px 20px 8px; position: relative; }
 .field { position: relative; margin-bottom: 6px; }
 .field label { display: block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 3px; }
@@ -58,7 +67,7 @@ body {
 .label-row { display: flex; justify-content: space-between; align-items: baseline; }
 .swap { border: none; background: none; color: var(--wikidata); cursor: pointer; font: inherit; font-size: 0.78rem; padding: 0; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 0.8rem; }
-.status { margin: 6px 0 0; font-size: 0.8rem; color: var(--callejero); }
+.status { margin: 0; padding: 0 20px 6px; font-size: 0.8rem; color: var(--callejero); }
 
 .suggestions {
   position: absolute; z-index: 1000; left: 0; right: 0; top: 100%;
@@ -90,6 +99,10 @@ body {
 .option-card .time { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
 .option-card .meta { font-size: 0.8rem; color: var(--muted); }
 .option-card .best { display: inline-block; margin-top: 4px; font-size: 0.72rem; font-weight: 700; color: var(--bicimad); }
+
+.center-card .kicker { margin: 0 0 2px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.center-card h2 { margin-bottom: 4px; font-size: 1.05rem; }
+.center-card p.sub { margin: 0; }
 
 .endpoint { display: flex; gap: 8px; align-items: baseline; margin: 6px 0; font-size: 0.85rem; }
 .endpoint b { white-space: nowrap; }
@@ -190,5 +203,5 @@ details.why > div { padding: 0 14px 12px; }
   body { grid-template-columns: 1fr; grid-template-rows: 45vh auto; }
   #map { height: 45vh; grid-row: 1; }
   .panel { grid-row: 2; height: auto; overflow: visible; border-right: none; }
-  .trip, #results { padding-left: 16px; padding-right: 16px; }
+  .tabs, .trip, .status, #results { padding-left: 16px; padding-right: 16px; }
 }

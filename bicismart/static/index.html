@@ -14,7 +14,12 @@
       <p>Rutas en BiciMAD sobre el grafo RDF de BiciMAD, el Callejero y Wikidata</p>
     </header>
 
-    <form class="trip" autocomplete="off" onsubmit="return false">
+    <nav class="tabs" role="tablist" aria-label="Modo">
+      <button type="button" role="tab" id="tab-route" data-mode="route" aria-controls="route-form" aria-selected="true">Ruta</button>
+      <button type="button" role="tab" id="tab-explore" data-mode="explore" aria-controls="explore-form" aria-selected="false" tabindex="-1">Explorar</button>
+    </nav>
+
+    <form class="trip" id="route-form" role="tabpanel" aria-labelledby="tab-route" autocomplete="off" onsubmit="return false">
       <div class="field" data-role="from">
         <label for="from-input">Desde</label>
         <div class="input-row">
@@ -36,8 +41,20 @@
         <ul class="suggestions" role="listbox" hidden></ul>
       </div>
       <p class="hint">También puedes hacer clic en el mapa o en una estación.</p>
-      <p class="status" id="status" hidden></p>
     </form>
+
+    <form class="trip" id="explore-form" role="tabpanel" aria-labelledby="tab-explore" autocomplete="off" onsubmit="return false" hidden>
+      <div class="field" data-role="center">
+        <label for="center-input">Estaciones cerca de</label>
+        <div class="input-row">
+          <input id="center-input" type="text" placeholder="Museo del Prado, Alcalá, un parque…">
+        </div>
+        <ul class="suggestions" role="listbox" hidden></ul>
+      </div>
+      <p class="hint">También puedes hacer clic en el mapa o en una estación.</p>
+    </form>
+
+    <p class="status" id="status" hidden></p>
 
     <section id="results" aria-live="polite"></section>
 

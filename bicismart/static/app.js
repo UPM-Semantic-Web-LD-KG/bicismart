@@ -11,8 +11,14 @@ const SOURCES = {
 const GROUPS = { street: "Calles · Callejero", place: "Lugares · Wikidata", station: "Estaciones · BiciMAD" };
 const SOL = [40.416775, -3.70379];
 const EXAMPLES = ["Bravo Murillo 120", "Museo del Prado", "un parque", "Agustín de Foxá"];
+const EXPLORE_EXAMPLES = ["Museo del Prado", "Alcalá", "un parque", "Metro Sol"];
 
-const state = { from: null, to: null, plan: null, shown: null, whyOpen: false };
+// mode: "route" (origen y destino) o "explore" (estaciones cerca de un lugar, FR2).
+// center es el lugar de Explorar y explore, la última respuesta de /api/explore.
+const state = {
+  mode: "route", from: null, to: null, plan: null, shown: null, whyOpen: false,
+  center: null, explore: null,
+};
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const results = $("#results");
@@ -75,10 +81,12 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 const stationLayer = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
 
+// Botones para usar un sitio: «Salir de aquí» e «Ir aquí» (modo Ruta) y, en Explorar, «Explorar aquí».
 function actions(onChoose, extra = "") {
   const div = document.createElement("div");
   div.className = "popup-actions";
-  div.innerHTML = `<button type="button" data-act="from">Salir de aquí</button><button type="button" data-act="to">Ir aquí</button>${extra}`;
+  const explore = state.mode === "explore" ? '<button type="button" data-act="explore">Explorar aquí</button>' : "";
+  div.innerHTML = `${explore}<button type="button" data-act="from">Salir de aquí</button><button type="button" data-act="to">Ir aquí</button>${extra}`;
   div.addEventListener("click", (event) => {
     const act = event.target.dataset.act;
     if (!act) return;
@@ -144,7 +152,7 @@ async function loadStations() {
         div.innerHTML = `<strong>${esc(s.name)}</strong><br>${s.capacity} bases · ${s.usable ? "en servicio" : "fuera de servicio"}`;
         div.append(actions((act) => {
           if (act === "card") showStation(s.id);
-          else setEndpoint(act, { ref: `station:${s.id}`, label: s.name });
+          else usePlace(act, { ref: `station:${s.id}`, label: s.name });
         }, '<button type="button" data-act="card">Ver ficha</button>'));
         return div;
       });
@@ -157,9 +165,10 @@ map.on("click", (event) => {
   const { lat, lng } = event.latlng;
   const div = document.createElement("div");
   div.innerHTML = "<strong>Punto del mapa</strong>";
-  div.append(actions((act) => setEndpoint(act, {
+  const labels = { from: "Punto de salida", to: "Punto de llegada", explore: "Punto del mapa" };
+  div.append(actions((act) => usePlace(act, {
     ref: `pt:${lat.toFixed(6)},${lng.toFixed(6)}`,
-    label: act === "from" ? "Punto de salida" : "Punto de llegada",
+    label: labels[act],
     lat,
     lon: lng,
   })));
@@ -205,15 +214,62 @@ function drawPlan() {
   map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40] });
 }
 
+// ---------- modos: Ruta y Explorar ----------
+
+const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
+
+function setMode(mode) {
+  if (state.mode === mode) return;
+  state.mode = mode;
+  for (const tab of tabs) {
+    const selected = tab.dataset.mode === mode;
+    tab.setAttribute("aria-selected", selected);
+    tab.tabIndex = selected ? 0 : -1;
+    $(`#${tab.getAttribute("aria-controls")}`).hidden = !selected;
+  }
+  map.closePopup();
+  if (mode === "explore") {
+    routeLayer.clearLayers();
+    if (state.explore) renderExplore();
+    else exploreWelcome();
+  } else if (state.plan) {
+    renderPlan();
+    drawPlan();
+  } else {
+    welcome();
+  }
+}
+
+tabs.forEach((tab, i) => {
+  tab.addEventListener("click", () => setMode(tab.dataset.mode));
+  // Patrón de pestañas: las flechas pasan de una a otra.
+  tab.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (!step) return;
+    const next = tabs[(i + step + tabs.length) % tabs.length];
+    next.focus();
+    setMode(next.dataset.mode);
+  });
+});
+
+// Usar un sitio elegido en el mapa o en una ficha: como origen, destino o centro de Explorar.
+function usePlace(act, place) {
+  if (act === "explore") setCenter(place);
+  else setEndpoint(act, place);
+}
+
 // ---------- origen y destino ----------
 
 function setEndpoint(role, value) {
+  setMode("route");
   state[role] = value;
   $(`#${role}-input`).value = value.label;
   if (state.from && state.to) computeRoute();
 }
 
-function setupField(role) {
+// Campo con autocompletado (/api/search). Al elegir una opción se llama a onChoose; por defecto,
+// la opción pasa a ser el origen o el destino.
+function setupField(role, onChoose = (item) => setEndpoint(role, { ref: item.ref, label: item.label })) {
   const field = $(`.field[data-role="${role}"]`);
   const input = $("input", field);
   const list = $(".suggestions", field);
@@ -265,7 +321,7 @@ function setupField(role) {
 
   const choose = (item) => {
     close();
-    setEndpoint(role, { ref: item.ref, label: item.label });
+    onChoose(item);
   };
 
   input.addEventListener("input", () => {
@@ -492,7 +548,7 @@ async function showStation(id) {
     if (data.nearby.length) html += nearbyCard(data.nearby, "Lugares cercanos");
     html += whyPanel(null, data.queries);
     results.innerHTML = html;
-    $("#station-actions").append(actions((act) => setEndpoint(act, { ref: `station:${s.id}`, label: s.name })));
+    $("#station-actions").append(actions((act) => usePlace(act, { ref: `station:${s.id}`, label: s.name })));
     bindStationLinks();
     $(".back", results)?.addEventListener("click", () => { renderPlan(); drawPlan(); });
     bindWhy();
@@ -502,22 +558,75 @@ async function showStation(id) {
   }
 }
 
+function exampleButtons(examples) {
+  return `<div class="popup-actions">${examples.map((e) => `<button type="button" data-example="${esc(e)}">${esc(e)}</button>`).join("")}</div>`;
+}
+
 function welcome() {
   results.innerHTML = `<div class="card"><h2>¿A dónde vas?</h2>
     <p class="sub">Elige el origen con tu ubicación o haciendo clic en el mapa, y escribe el destino:
     una calle (el número se ignora), un lugar, un tipo de lugar o una estación.</p>
-    <p class="sub">Ejemplos desde la Puerta del Sol:</p>
-    <div class="popup-actions">${EXAMPLES.map((e) => `<button type="button" data-example="${esc(e)}">${esc(e)}</button>`).join("")}</div></div>`;
-  results.addEventListener("click", (event) => {
-    const example = event.target.dataset.example;
-    if (!example) return;
+    <p class="sub">Ejemplos desde la Puerta del Sol:</p>${exampleButtons(EXAMPLES)}</div>`;
+}
+
+function exploreWelcome() {
+  results.innerHTML = `<div class="card"><h2>¿Qué estaciones hay cerca?</h2>
+    <p class="sub">Escribe una calle, un lugar, un tipo de lugar o una estación, o haz clic en el mapa,
+    y verás las estaciones BiciMAD que tiene alrededor, de la más cercana a la más lejana.</p>
+    <p class="sub">Ejemplos:</p>${exampleButtons(EXPLORE_EXAMPLES)}</div>`;
+}
+
+// Los ejemplos escriben en el campo del modo activo y muestran sus sugerencias.
+results.addEventListener("click", (event) => {
+  const example = event.target.dataset.example;
+  if (!example) return;
+  let input = $("#center-input");
+  if (state.mode === "route") {
     state.from = { ref: `pt:${SOL[0]},${SOL[1]}`, label: "Puerta del Sol", lat: SOL[0], lon: SOL[1] };
     $("#from-input").value = state.from.label;
-    const input = $("#to-input");
-    input.value = example;
-    input.focus();
-    input.dispatchEvent(new Event("input"));
-  });
+    input = $("#to-input");
+  }
+  input.value = example;
+  input.focus();
+  input.dispatchEvent(new Event("input"));
+});
+
+// ---------- Explorar ----------
+
+let exploreSequence = 0;
+
+function setCenter(place) {
+  setMode("explore");
+  state.center = place;
+  $("#center-input").value = place.label;
+  exploreAround();
+}
+
+async function exploreAround() {
+  const mine = ++exploreSequence;
+  results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
+  try {
+    const data = await api("/api/explore", { ref: state.center.ref, label: state.center.label });
+    if (mine !== exploreSequence) return;
+    state.explore = data;
+    if (state.mode === "explore") renderExplore();
+  } catch (error) {
+    if (mine !== exploreSequence) return;
+    state.explore = null;
+    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+  }
+}
+
+function centerCard(center) {
+  return `<div class="card center-card"><p class="kicker">Lugar</p>
+    <h2>${esc(center.label)} ${badge(center.source)} ${center.approximate ? badge("warn", "aproximado") : ""}</h2>
+    <p class="sub">${esc(center.note)}</p></div>`;
+}
+
+function renderExplore() {
+  const data = state.explore;
+  results.innerHTML = centerCard(data.center) + whyPanel(data.contributions, data.queries);
+  bindWhy();
 }
 
 async function checkStatus() {
@@ -536,6 +645,7 @@ async function checkStatus() {
 
 setupField("from");
 setupField("to");
+setupField("center", (item) => setCenter({ ref: item.ref, label: item.label }));
 welcome();
 loadStations();
 checkStatus();
