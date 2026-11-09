@@ -20,7 +20,10 @@ def station_summary(row: dict) -> dict:
     return {key: row[key] for key in ("id", "name", "lat", "lon", "capacity", "usable")}
 
 
-def station_card(station_id: str) -> dict:
+def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -> dict:
+    """Ficha de una estación: sus datos de BiciMAD, el Callejero y Wikidata (`blocks`) y sus
+    `nearest` estaciones más cercanas (`nearestStations`, ver `nearest_stations`).
+    """
     rows = graph.query("station_detail", id=station_id)
     if not rows:
         raise LookupError(f"No existe la estación {station_id}.")
@@ -59,7 +62,13 @@ def station_card(station_id: str) -> dict:
             ],
         })
 
-    return {**station_summary(s), "blocks": blocks}
+    return {
+        **station_summary(s),
+        "blocks": blocks,
+        "nearestStations": nearest_stations(
+            s["id"], s["lat"], s["lon"], limit=nearest, usable_only=usable_only
+        ),
+    }
 
 
 def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6) -> list[dict]:

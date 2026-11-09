@@ -638,7 +638,7 @@ async function showStation(id) {
     let html = back ? back.html : "";
     html += stationCard(s, "Estación");
     html += '<div class="card" id="station-actions"></div>';
-    if (data.nearestStations.length) html += nearestStationsCard(data.nearestStations);
+    if (s.nearestStations.length) html += nearestStationsCard(s.nearestStations);
     if (data.nearby.length) html += nearbyCard(data.nearby, "Lugares cercanos");
     html += whyPanel(null, data.queries);
     results.innerHTML = html;

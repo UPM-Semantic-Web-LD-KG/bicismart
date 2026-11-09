@@ -125,15 +125,12 @@ def route(
     plan = routing.plan(origin, destination)
     cards = []
     if plan["bike"]:
+        # Fichas de la estación de salida y la de llegada, cada una con 3 alternativas
+        # utilizables por si no hay bicis o huecos.
         cards = [
-            enrich.station_card(plan["bike"]["from_station"]["id"]),
-            enrich.station_card(plan["bike"]["to_station"]["id"]),
+            enrich.station_card(plan["bike"][key]["id"], nearest=3, usable_only=True)
+            for key in ("from_station", "to_station")
         ]
-        # Alternativas a la estación de salida y a la de llegada, por si no hay bicis o huecos.
-        for card in cards:
-            card["nearestStations"] = enrich.nearest_stations(
-                card["id"], card["lat"], card["lon"], limit=3, usable_only=True
-            )
     final_leg = plan["bike"]["legs"][-1] if plan["recommended"] == "bike" else plan["walk"]
     nearby = [
         place for place in enrich.nearby_places(*final_leg["geometry"][-1])
@@ -228,7 +225,6 @@ def station(station_id: str):
         raise HTTPException(404, str(error)) from error
     return {
         "station": card,
-        "nearestStations": enrich.nearest_stations(card["id"], card["lat"], card["lon"]),
         "nearby": enrich.nearby_places(card["lat"], card["lon"]),
         "queries": queries,
     }
