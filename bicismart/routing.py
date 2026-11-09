@@ -96,7 +96,7 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
     walk_from, walk_to = min(
         ((a, b) for a in departures for b in arrivals), key=lambda pair: geo.distance_m(*pair[0], *pair[1])
     )
-    walk = route("foot", walk_from, walk_to)
+    walk = _leg("walk", origin.label, destination.label, route("foot", walk_from, walk_to))
 
     bike = None
     if pairs:

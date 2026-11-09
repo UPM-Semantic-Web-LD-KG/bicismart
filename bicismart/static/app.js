@@ -264,7 +264,7 @@ function drawPlan() {
     if (!faded) bounds.push(...leg.geometry);
   };
   if (plan.bike) plan.bike.legs.forEach((leg) => draw(leg, !showBike));
-  draw({ ...plan.walk, mode: "walk" }, showBike);
+  draw(plan.walk, showBike);
 
   if (showBike) {
     for (const s of [plan.bike.fromStation, plan.bike.toStation]) {
