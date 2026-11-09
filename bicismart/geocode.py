@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 
 from . import geo, graph, wikidata
+from .errors import BadRequest, NotFound
 from .names import district_names, fold, pretty
 
 STREET_TYPES = {
@@ -182,7 +183,7 @@ def _street(key: str) -> Endpoint:
     node = graph.street(key)
     rows = graph.query("street", street=node)
     if not rows:
-        raise LookupError(f"No existe la calle {key} en el Callejero.")
+        raise NotFound(f"No existe la calle {key} en el Callejero.")
     info = rows[0]
     name = pretty(info["name"])
 
@@ -219,19 +220,23 @@ def _street(key: str) -> Endpoint:
             csv={"verdict": "no", "text": "No: el CSV de BiciMAD no tiene distritos ni barrios."},
             approximate=True,
         )
-    raise LookupError(f"No se ha podido situar la calle {name}.")
+    raise NotFound(f"No se ha podido situar la calle {name}.")
 
 
 def resolve(ref: str, label: str | None = None) -> Endpoint:
+    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida."""
     kind, _, value = ref.partition(":")
     if kind == "pt":
-        lat, lon = (float(part) for part in value.split(","))
+        try:
+            lat, lon = (float(part) for part in value.split(","))
+        except ValueError as error:
+            raise BadRequest(str(error)) from error
         return Endpoint(label or "Punto del mapa", lat, lon, "user", "Ubicación indicada por ti.")
 
     if kind == "station":
         rows = graph.query("station_detail", id=value)
         if not rows:
-            raise LookupError(f"No existe la estación {value}.")
+            raise NotFound(f"No existe la estación {value}.")
         station = rows[0]
         if station["usable"]:
             return Endpoint(
@@ -249,7 +254,7 @@ def resolve(ref: str, label: str | None = None) -> Endpoint:
     if kind == "place":
         place = wikidata.place(value)
         if place is None:
-            raise LookupError(f"No se encuentra el lugar {value} en la caché de Wikidata.")
+            raise NotFound(f"No se encuentra el lugar {value} en la caché de Wikidata.")
         return Endpoint(
             place["label"], place["lat"], place["lon"], "wikidata",
             "Coordenadas del lugar en Wikidata (P625).",
@@ -259,4 +264,4 @@ def resolve(ref: str, label: str | None = None) -> Endpoint:
     if kind == "street":
         return _street(value)
 
-    raise ValueError(f"Referencia no válida: {ref}")
+    raise BadRequest(f"Referencia no válida: {ref}")

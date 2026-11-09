@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import enrich, geocode, routing, trace, wikidata
+from .errors import BadRequest, NotFound
 from .geocode import Endpoint
 
 STATIC = Path(__file__).parent / "static"
@@ -24,6 +25,16 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="BiciSmart", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.exception_handler(NotFound)
+async def not_found(_request: Request, error: NotFound) -> JSONResponse:
+    return JSONResponse({"detail": str(error)}, status_code=404)
+
+
+@app.exception_handler(BadRequest)
+async def bad_request(_request: Request, error: BadRequest) -> JSONResponse:
+    return JSONResponse({"detail": str(error)}, status_code=400)
 
 
 @app.get("/")
@@ -119,14 +130,8 @@ def route(
     destination_label: str | None = Query(None, alias="toLabel"),
 ):
     queries = trace.start()
-    try:
-        origin = geocode.resolve(origin_ref, origin_label)
-        destination = geocode.resolve(destination_ref, destination_label)
-    except LookupError as error:
-        raise HTTPException(404, str(error)) from error
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
-
+    origin = geocode.resolve(origin_ref, origin_label)
+    destination = geocode.resolve(destination_ref, destination_label)
     plan = routing.plan(origin, destination)
     cards = []
     if plan["bike"]:
@@ -182,14 +187,9 @@ def explore(ref: str, label: str | None = None, radius: str = "500"):
     """
     queries = trace.start()
     if not radius.isdigit() or int(radius) not in EXPLORE_RADII:
-        raise HTTPException(400, "El radio tiene que ser de 300, 500 o 1000 m.")
+        raise BadRequest("El radio tiene que ser de 300, 500 o 1000 m.")
     radius_m = int(radius)
-    try:
-        center = geocode.resolve(ref, label)
-    except LookupError as error:
-        raise HTTPException(404, str(error)) from error
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
+    center = geocode.resolve(ref, label)
 
     kind, _, value = ref.partition(":")
     street_stations = center.stations if kind == "street" and center.stations else []
@@ -224,10 +224,7 @@ def explore(ref: str, label: str | None = None, radius: str = "500"):
 @app.get("/api/station/{station_id}")
 def station(station_id: str):
     queries = trace.start()
-    try:
-        card = enrich.station_card(station_id)
-    except LookupError as error:
-        raise HTTPException(404, str(error)) from error
+    card = enrich.station_card(station_id)
     return {
         "station": card,
         "nearby": enrich.nearby_places(card["lat"], card["lon"]),

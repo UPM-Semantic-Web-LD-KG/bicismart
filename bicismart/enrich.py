@@ -1,6 +1,7 @@
 """Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
 
 from . import geo, graph, trace, wikidata
+from .errors import NotFound
 from .names import district_names, pretty
 
 STATES = {
@@ -26,7 +27,7 @@ def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -
     """
     rows = graph.query("station_detail", id=station_id)
     if not rows:
-        raise LookupError(f"No existe la estación {station_id}.")
+        raise NotFound(f"No existe la estación {station_id}.")
     s = rows[0]
 
     blocks = [{
