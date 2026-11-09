@@ -84,11 +84,9 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
     """Lugares de Wikidata a menos de `radius_m` metros, del más cercano al más lejano."""
     places = wikidata.places()
     with trace.record(
-        "wikidata", "wikidata_places",
-        wikidata.places_query("museo")
-        + f"\n\n# … y una consulta igual para cada categoría: {', '.join(wikidata.CATEGORIES)}."
-        + f"\n# Se usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
-        cached=True,
+        "wikidata", "wikidata_places", wikidata.places_query("museo"), cached=True,
+        note=f"… y una consulta igual para cada categoría: {', '.join(wikidata.CATEGORIES)}."
+        + f"\nSe usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
     ) as entry:
         found = [
             {**p, "distance": round(d), "link": wikidata.page_url(p["qid"]),
@@ -107,17 +105,15 @@ def nearest_stations(
     Con `usable_only` solo cuentan las que se pueden usar: es lo que interesa como alternativa
     a una estación de la ruta.
     """
-    stations = graph.query_cached("stations")
+    stations = graph.query_cached("stations", note=(
+        f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
+        + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
+    ))
     others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
-    found = [
+    return [
         {**station_summary(s), "distance": round(d)}
         for d, s in geo.by_distance(others, lat, lon, k=limit)
     ]
-    trace.note(
-        f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
-        + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
-    )
-    return found
 
 
 def stations_within(
@@ -130,21 +126,19 @@ def stations_within(
     desde todas ellas, no desde un punto medio. `exclude` es el id de una estación que no
     cuenta: la que hace de centro.
     """
-    stations = graph.query_cached("stations")
-    others = [s for s in stations if s["id"] != exclude]
-    found = [
-        {**station_summary(s), "distance": round(d)}
-        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
-    ]
     if len(points) == 1:
         where = "de ({:.5f}, {:.5f}) ".format(*points[0])
     else:
         where = f"del más cercano de estos {len(points)} puntos:\n" + "".join(
             f"  ({lat:.5f}, {lon:.5f})\n" for lat, lon in points
         )
-    trace.note(
+    stations = graph.query_cached("stations", note=(
         f"Se eligen las que están a {radius_m} m o menos\n{where}en línea recta (haversine), "
         "de la más cercana a la más lejana"
         + (f", sin contar la estación {exclude}." if exclude else ".")
-    )
-    return found
+    ))
+    others = [s for s in stations if s["id"] != exclude]
+    return [
+        {**station_summary(s), "distance": round(d)}
+        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
+    ]

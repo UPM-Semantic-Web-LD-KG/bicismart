@@ -82,8 +82,8 @@ def _text(name: str, params: dict) -> str:
     return _template(name).substitute({key: _term(value) for key, value in params.items()})
 
 
-def _run(name: str, text: str) -> list[dict]:
-    with trace.record("local", name, text) as entry:
+def _run(name: str, text: str, note: str | None = None) -> list[dict]:
+    with trace.record("local", name, text, note=note) as entry:
         result = store.query(text)
         names = [variable.value for variable in result.variables]
         rows = [dict(zip(names, (_python(solution[n]) for n in names))) for solution in result]
@@ -91,15 +91,18 @@ def _run(name: str, text: str) -> list[dict]:
     return rows
 
 
-def query(name: str, **params) -> list[dict]:
-    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python."""
-    return _run(name, _text(name, params))
+def query(name: str, *, note: str | None = None, **params) -> list[dict]:
+    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python.
+
+    `note` es un comentario para el panel sobre qué se hace con las filas (ver `trace.record`).
+    """
+    return _run(name, _text(name, params), note)
 
 
 _results: dict[str, list[dict]] = {}
 
 
-def query_cached(name: str, **params) -> list[dict]:
+def query_cached(name: str, *, note: str | None = None, **params) -> list[dict]:
     """Como `query`, pero solo ejecuta la consulta la primera vez y después reutiliza las filas.
 
     El grafo no cambia mientras corre la app, así que el resultado vale para siempre. Cada llamada
@@ -108,10 +111,10 @@ def query_cached(name: str, **params) -> list[dict]:
     """
     text = _text(name, params)
     if text not in _results:
-        _results[text] = _run(name, text)
+        _results[text] = _run(name, text, note)
         return _results[text]
     rows = _results[text]
-    with trace.record("local", name, text, cached=True) as entry:
+    with trace.record("local", name, text, cached=True, note=note) as entry:
         entry["rows"] = len(rows)
     return rows
 
