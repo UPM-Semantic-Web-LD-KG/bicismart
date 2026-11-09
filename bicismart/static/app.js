@@ -88,10 +88,51 @@ function actions(onChoose, extra = "") {
   return div;
 }
 
+// Filtros de estaciones: solo deciden qué marcadores se ven; el cálculo de rutas no los usa.
+const stationMarkers = [];
+const MIN_CAPACITY_OPTIONS = [10, 20, 25, 30];
+
+const stationFilter = L.control({ position: "topright" });
+stationFilter.onAdd = () => {
+  const form = L.DomUtil.create("form", "station-filter");
+  form.innerHTML = `<fieldset>
+    <legend>Estaciones ${badge("bicimad")}</legend>
+    <label><input type="checkbox" id="filter-usable"> Solo en servicio</label>
+    <label>Mínimo de bases
+      <select id="filter-capacity">
+        <option value="0">Cualquiera</option>
+        ${MIN_CAPACITY_OPTIONS.map((n) => `<option value="${n}">${n} o más</option>`).join("")}
+      </select>
+    </label>
+    <p class="count" id="filter-count" aria-live="polite">Cargando estaciones…</p>
+  </fieldset>`;
+  L.DomEvent.disableClickPropagation(form);
+  L.DomEvent.disableScrollPropagation(form);
+  form.addEventListener("submit", (event) => event.preventDefault());
+  form.addEventListener("change", applyStationFilters);
+  return form;
+};
+stationFilter.addTo(map);
+
+function applyStationFilters() {
+  const onlyUsable = $("#filter-usable").checked;
+  const minCapacity = Number($("#filter-capacity").value);
+  let visible = 0;
+  for (const { station, marker } of stationMarkers) {
+    if ((onlyUsable && !station.usable) || station.capacity < minCapacity) {
+      stationLayer.removeLayer(marker);
+    } else {
+      stationLayer.addLayer(marker);
+      visible += 1;
+    }
+  }
+  $("#filter-count").textContent = `${visible} de ${stationMarkers.length} estaciones`;
+}
+
 async function loadStations() {
   const stations = await api("/api/stations");
   for (const s of stations) {
-    L.circleMarker([s.lat, s.lon], {
+    const marker = L.circleMarker([s.lat, s.lon], {
       radius: 4.5,
       weight: 1,
       color: "#ffffff",
@@ -106,9 +147,10 @@ async function loadStations() {
           else setEndpoint(act, { ref: `station:${s.id}`, label: s.name });
         }, '<button type="button" data-act="card">Ver ficha</button>'));
         return div;
-      })
-      .addTo(stationLayer);
+      });
+    stationMarkers.push({ station: s, marker });
   }
+  applyStationFilters();
 }
 
 map.on("click", (event) => {
