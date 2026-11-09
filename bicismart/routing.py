@@ -7,7 +7,7 @@ tiempos reales de los tramos elegidos. Si OSRM no responde, se muestran las esti
 
 import httpx
 
-from . import geo, graph, trace
+from . import enrich, geo, graph, trace
 from .geocode import Endpoint
 
 OSRM = "https://routing.openstreetmap.de/routed-{profile}/route/v1/driving/{coords}?overview=full&geometries=geojson"
@@ -16,6 +16,11 @@ SPEED = {"foot": 5 / 3.6, "bike": 15 / 3.6}  # m/s
 DETOUR = 1.3
 DOCK_S = 60  # sacar o dejar la bici en la base
 CANDIDATES = 5  # estaciones que se prueban en cada extremo
+
+# Fallos de OSRM con los que la ruta sigue, con la estimación: la red o HTTP y una respuesta con
+# un formato inesperado (KeyError o IndexError si falta un dato; TypeError si "routes" es null o
+# la respuesta es una lista; ValueError si no es JSON). Es el criterio de wikidata.ERRORS.
+ERRORS = (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError)
 
 _cache: dict[str, dict] = {}
 
@@ -56,7 +61,7 @@ def route(profile: str, a: Point, b: Point) -> dict:
                 "geometry": [[lat, lon] for lon, lat in best["geometry"]["coordinates"]],
                 "estimated": False,
             }
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as error:
+        except ERRORS as error:
             entry["error"] = str(error) or type(error).__name__
     meters = _estimated_m(a, b)
     return {
@@ -71,10 +76,6 @@ def _candidates(endpoint: Endpoint, other: Endpoint, pool: list[dict]) -> list[d
     if endpoint.stations:
         return geo.nearest(endpoint.stations, other.lat, other.lon, CANDIDATES)
     return geo.nearest(pool, endpoint.lat, endpoint.lon, CANDIDATES)
-
-
-def _station(row: dict) -> dict:
-    return {key: row[key] for key in ("id", "name", "lat", "lon", "capacity", "unavailable")}
 
 
 def _leg(mode: str, start: str, end: str, path: dict) -> dict:
@@ -100,7 +101,7 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
     walk_from, walk_to = min(
         ((a, b) for a in departures for b in arrivals), key=lambda pair: geo.distance_m(*pair[0], *pair[1])
     )
-    walk = route("foot", walk_from, walk_to)
+    walk = _leg("walk", origin.label, destination.label, route("foot", walk_from, walk_to))
 
     bike = None
     if pairs:
@@ -114,10 +115,10 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
         bike = {
             "duration": sum(leg["duration"] for leg in legs) + 2 * DOCK_S,
             "distance": sum(leg["distance"] for leg in legs),
-            "dock": 2 * DOCK_S,
+            "dock": 2 * DOCK_S,  # sacar la bici y dejarla
             "legs": legs,
-            "from_station": _station(start),
-            "to_station": _station(end),
+            "fromStation": enrich.station_summary(start),
+            "toStation": enrich.station_summary(end),
             "estimated": any(leg["estimated"] for leg in legs),
         }
 

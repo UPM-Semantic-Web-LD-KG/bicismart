@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 
 from . import geo, graph, wikidata
+from .errors import BadRequest, NotFound
 from .names import district_names, fold, pretty
 
 STREET_TYPES = {
@@ -30,7 +31,9 @@ class Endpoint:
     lon: float
     source: str  # de dónde sale la ubicación: user, bicimad, callejero o wikidata
     note: str  # cómo se ha resuelto, para enseñarlo al usuario
-    csv: str | None = None  # qué se podría hacer solo con el CSV de BiciMAD
+    # Qué se podría hacer solo con el CSV de BiciMAD, para el panel «¿Por qué ontología?»:
+    # {"verdict": "yes" | "partial" | "no", "text": …}.
+    csv: dict | None = None
     stations: list[dict] | None = None  # estaciones a las que se llega sin tramo a pie
     approximate: bool = False
 
@@ -180,7 +183,7 @@ def _street(key: str) -> Endpoint:
     node = graph.street(key)
     rows = graph.query("street", street=node)
     if not rows:
-        raise LookupError(f"No existe la calle {key} en el Callejero.")
+        raise NotFound(f"No existe la calle {key} en el Callejero.")
     info = rows[0]
     name = pretty(info["name"])
 
@@ -191,8 +194,10 @@ def _street(key: str) -> Endpoint:
             name, lat, lon, "callejero",
             f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): el trayecto empieza o termina "
             "en una de ellas, sin tramo a pie.",
-            csv="Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
-                "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación.",
+            csv={"verdict": "partial", "text": (
+                "Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
+                "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación."
+            )},
             stations=stations,
         )
 
@@ -201,7 +206,7 @@ def _street(key: str) -> Endpoint:
         return Endpoint(
             name, facts["lat"], facts["lon"], "wikidata",
             "La calle no tiene estaciones; se usan sus coordenadas en Wikidata (owl:sameAs → P625).",
-            csv="No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."},
         )
 
     nearby = graph.query("neighborhood_stations", street=node)
@@ -212,47 +217,51 @@ def _street(key: str) -> Endpoint:
             "La calle no tiene estaciones ni coordenadas en Wikidata; se sitúa de forma aproximada "
             "en el centro de las estaciones de su distrito y barrio (bm:districtCode, "
             "bm:neighborhoodCode).",
-            csv="No: el CSV de BiciMAD no tiene distritos ni barrios.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no tiene distritos ni barrios."},
             approximate=True,
         )
-    raise LookupError(f"No se ha podido situar la calle {name}.")
+    raise NotFound(f"No se ha podido situar la calle {name}.")
 
 
 def resolve(ref: str, label: str | None = None) -> Endpoint:
+    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida."""
     kind, _, value = ref.partition(":")
     if kind == "pt":
-        lat, lon = (float(part) for part in value.split(","))
+        try:
+            lat, lon = (float(part) for part in value.split(","))
+        except ValueError as error:
+            raise BadRequest(str(error)) from error
         return Endpoint(label or "Punto del mapa", lat, lon, "user", "Ubicación indicada por ti.")
 
     if kind == "station":
         rows = graph.query("station_detail", id=value)
         if not rows:
-            raise LookupError(f"No existe la estación {value}.")
+            raise NotFound(f"No existe la estación {value}.")
         station = rows[0]
         if station["usable"]:
             return Endpoint(
                 station["name"], station["lat"], station["lon"], "bicimad",
                 "Estación BiciMAD elegida directamente.",
-                csv="Sí: el CSV tiene la estación y sus coordenadas.",
+                csv={"verdict": "yes", "text": "Sí: el CSV tiene la estación y sus coordenadas."},
                 stations=[station],
             )
         return Endpoint(
             station["name"], station["lat"], station["lon"], "bicimad",
             "Esta estación no se puede usar ahora; se buscan las más cercanas.",
-            csv="Sí: el CSV tiene la estación y su estado.",
+            csv={"verdict": "yes", "text": "Sí: el CSV tiene la estación y su estado."},
         )
 
     if kind == "place":
         place = wikidata.place(value)
         if place is None:
-            raise LookupError(f"No se encuentra el lugar {value} en la caché de Wikidata.")
+            raise NotFound(f"No se encuentra el lugar {value} en la caché de Wikidata.")
         return Endpoint(
             place["label"], place["lat"], place["lon"], "wikidata",
             "Coordenadas del lugar en Wikidata (P625).",
-            csv="No: el CSV de BiciMAD no contiene lugares de interés.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no contiene lugares de interés."},
         )
 
     if kind == "street":
         return _street(value)
 
-    raise ValueError(f"Referencia no válida: {ref}")
+    raise BadRequest(f"Referencia no válida: {ref}")
