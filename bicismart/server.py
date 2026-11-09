@@ -154,4 +154,9 @@ def station(station_id: str):
         card = enrich.station_card(station_id)
     except LookupError as error:
         raise HTTPException(404, str(error)) from error
-    return {"station": card, "nearby": enrich.nearby_places(card["lat"], card["lon"]), "queries": queries}
+    return {
+        "station": card,
+        "nearestStations": enrich.nearest_stations(card["id"], card["lat"], card["lon"]),
+        "nearby": enrich.nearby_places(card["lat"], card["lon"]),
+        "queries": queries,
+    }

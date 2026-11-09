@@ -387,6 +387,12 @@ function nearbyCard(places, title) {
   return `<div class="card"><h2>${esc(title)} ${badge("wikidata")}</h2><ul class="places">${items.join("")}</ul></div>`;
 }
 
+function nearestStationsCard(stations) {
+  const items = stations.map((s) => `<li><a href="#" data-station="${esc(s.id)}">${esc(s.name)}</a>
+    <span>${s.usable ? "" : `${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${km(s.distance)}</span></li>`);
+  return `<div class="card"><h2>Estaciones más cercanas ${badge("bicimad")}</h2><ul class="places">${items.join("")}</ul></div>`;
+}
+
 function verdictClass(text) {
   if (text.startsWith("No")) return "no";
   if (text.startsWith("Sí")) return "yes";
@@ -468,10 +474,15 @@ async function showStation(id) {
     let html = state.plan ? '<button type="button" class="back">← Volver a la ruta</button>' : "";
     html += stationCard(s, "Estación");
     html += '<div class="card" id="station-actions"></div>';
+    if (data.nearestStations.length) html += nearestStationsCard(data.nearestStations);
     if (data.nearby.length) html += nearbyCard(data.nearby, "Lugares cercanos");
     html += whyPanel(null, data.queries);
     results.innerHTML = html;
     $("#station-actions").append(actions((act) => setEndpoint(act, { ref: `station:${s.id}`, label: s.name })));
+    results.querySelectorAll("[data-station]").forEach((link) => link.addEventListener("click", (event) => {
+      event.preventDefault();
+      showStation(link.dataset.station);
+    }));
     $(".back", results)?.addEventListener("click", () => { renderPlan(); drawPlan(); });
     bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
