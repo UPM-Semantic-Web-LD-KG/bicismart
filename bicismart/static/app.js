@@ -264,10 +264,10 @@ function drawPlan() {
     if (!faded) bounds.push(...leg.geometry);
   };
   if (plan.bike) plan.bike.legs.forEach((leg) => draw(leg, !showBike));
-  draw({ ...plan.walk, mode: "walk" }, showBike);
+  draw(plan.walk, showBike);
 
   if (showBike) {
-    for (const s of [plan.bike.from_station, plan.bike.to_station]) {
+    for (const s of [plan.bike.fromStation, plan.bike.toStation]) {
       L.circleMarker([s.lat, s.lon], { radius: 8, color: "#d0112b", weight: 3, fillColor: "#ffffff", fillOpacity: 1 })
         .bindTooltip(esc(s.name))
         .addTo(routeLayer);
@@ -466,6 +466,8 @@ function endpointLine(role, endpoint) {
 }
 
 function stepsCard(bike) {
+  // bike.dock es el tiempo de sacar la bici y de dejarla: la mitad para cada paso.
+  const dock = minutes(bike.dock / 2);
   const steps = [];
   for (const leg of bike.legs) {
     const estimated = leg.estimated ? " · estimado" : "";
@@ -473,10 +475,10 @@ function stepsCard(bike) {
       steps.push(`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
         <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
     } else {
-      steps.push(`<li class="dock">Coge una bici en <strong>${esc(leg.from)}</strong><span class="sub">1 min para desanclarla</span></li>`);
+      steps.push(`<li class="dock">Coge una bici en <strong>${esc(leg.from)}</strong><span class="sub">${dock} para desanclarla</span></li>`);
       steps.push(`<li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
         <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-      steps.push(`<li class="dock">Deja la bici en <strong>${esc(leg.to)}</strong><span class="sub">1 min para anclarla</span></li>`);
+      steps.push(`<li class="dock">Deja la bici en <strong>${esc(leg.to)}</strong><span class="sub">${dock} para anclarla</span></li>`);
     }
   }
   return `<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">${steps.join("")}</ol></div>`;
@@ -538,19 +540,13 @@ results.addEventListener("click", (event) => {
   showStation(link.dataset.station);
 });
 
-function verdictClass(text) {
-  if (text.startsWith("No")) return "no";
-  if (text.startsWith("Sí")) return "yes";
-  return "";
-}
-
 function whyPanel(contributions, queries) {
   let html = `<details class="why" ${state.whyOpen ? "open" : ""}><summary>¿Por qué ontología?</summary><div>`;
   if (contributions) {
     html += `<p class="sub">Qué aporta cada fuente a esta respuesta y qué se podría hacer solo con el CSV de BiciMAD.</p>
       <table><thead><tr><th>Dato</th><th>Fuente</th><th>Solo con el CSV</th></tr></thead><tbody>
       ${contributions.map((c) => `<tr><td>${esc(c.what)}<br><span class="sub">${esc(c.how)}</span></td>
-        <td>${badge(c.source)}</td><td class="${verdictClass(c.csv)}">${esc(c.csv)}</td></tr>`).join("")}
+        <td>${badge(c.source)}</td><td class="${esc(c.csv.verdict ?? "")}">${esc(c.csv.text)}</td></tr>`).join("")}
       </tbody></table>`;
   }
   html += `<h3>Consultas ejecutadas (${queries.length})</h3>`;
@@ -638,7 +634,7 @@ async function showStation(id) {
     let html = back ? back.html : "";
     html += stationCard(s, "Estación");
     html += '<div class="card" id="station-actions"></div>';
-    if (data.nearestStations.length) html += nearestStationsCard(data.nearestStations);
+    if (s.nearestStations.length) html += nearestStationsCard(s.nearestStations);
     if (data.nearby.length) html += nearbyCard(data.nearby, "Lugares cercanos");
     html += whyPanel(null, data.queries);
     results.innerHTML = html;

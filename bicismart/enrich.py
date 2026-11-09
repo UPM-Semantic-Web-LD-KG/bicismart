@@ -1,6 +1,7 @@
 """Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
 
 from . import geo, graph, trace, wikidata
+from .errors import NotFound
 from .names import district_names, pretty
 
 STATES = {
@@ -11,10 +12,22 @@ STATES = {
 }
 
 
-def station_card(station_id: str) -> dict:
+def station_summary(row: dict) -> dict:
+    """Forma básica de una estación en la API, a partir de una fila del patrón `_station.rq`.
+
+    Es la de `/api/stations`, la de las estaciones de la ruta, las fichas y las listas de
+    estaciones cercanas; cada uso le añade sus claves (`distance`, `blocks`…).
+    """
+    return {key: row[key] for key in ("id", "name", "lat", "lon", "capacity", "usable")}
+
+
+def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -> dict:
+    """Ficha de una estación: sus datos de BiciMAD, el Callejero y Wikidata (`blocks`) y sus
+    `nearest` estaciones más cercanas (`nearestStations`, ver `nearest_stations`).
+    """
     rows = graph.query("station_detail", id=station_id)
     if not rows:
-        raise LookupError(f"No existe la estación {station_id}.")
+        raise NotFound(f"No existe la estación {station_id}.")
     s = rows[0]
 
     blocks = [{
@@ -51,12 +64,11 @@ def station_card(station_id: str) -> dict:
         })
 
     return {
-        "id": s["id"],
-        "name": s["name"],
-        "lat": s["lat"],
-        "lon": s["lon"],
-        "usable": s["usable"],
+        **station_summary(s),
         "blocks": blocks,
+        "nearestStations": nearest_stations(
+            s["id"], s["lat"], s["lon"], limit=nearest, usable_only=usable_only
+        ),
     }
 
 
@@ -79,16 +91,6 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
     return found
 
 
-def _station_row(station: dict, distance: float) -> dict:
-    return {
-        "id": station["id"],
-        "name": station["name"],
-        "distance": round(distance),
-        "capacity": station["capacity"],
-        "usable": station["usable"],
-    }
-
-
 def nearest_stations(
     station_id: str, lat: float, lon: float, limit: int = 5, usable_only: bool = False
 ) -> list[dict]:
@@ -99,7 +101,10 @@ def nearest_stations(
     """
     stations = graph.query_cached("stations")
     others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
-    found = [_station_row(s, d) for d, s in geo.by_distance(others, lat, lon, k=limit)]
+    found = [
+        {**station_summary(s), "distance": round(d)}
+        for d, s in geo.by_distance(others, lat, lon, k=limit)
+    ]
     trace.note(
         f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
         + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
@@ -120,7 +125,7 @@ def stations_within(
     stations = graph.query_cached("stations")
     others = [s for s in stations if s["id"] != exclude]
     found = [
-        {**_station_row(s, d), "lat": s["lat"], "lon": s["lon"]}
+        {**station_summary(s), "distance": round(d)}
         for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
     ]
     if len(points) == 1:
