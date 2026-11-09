@@ -76,6 +76,11 @@ WHERE {
   SERVICE wikibase:label { bd:serviceParam wikibase:language "es,en". }
 }""")
 
+# Fallos de Wikidata con los que la app sigue funcionando, sin esos datos: la red o HTTP y una
+# respuesta con un formato inesperado (ValueError de _run, KeyError si a una fila le falta una
+# variable). Es el mismo criterio que routing.route con OSRM.
+ERRORS = (httpx.HTTPError, KeyError, ValueError)
+
 _lock = threading.Lock()
 _streets: dict[str, dict] = {}
 _places: list[dict] = []
@@ -90,11 +95,20 @@ def _read(path) -> object | None:
 
 
 def _write(path, data) -> None:
-    DATA.mkdir(exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    """Guarda una caché. Si no se puede, lo deja en el log y se sigue con los datos en memoria."""
+    try:
+        DATA.mkdir(exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as error:
+        log.warning("No se ha podido guardar la caché %s: %s", path.name, error)
 
 
 def _run(name: str, text: str) -> list[dict]:
+    """Filas {variable: valor} de una consulta a Wikidata.
+
+    Lanza httpx.HTTPError si falla la petición y ValueError si la respuesta no es un resultado
+    SPARQL en JSON.
+    """
     with trace.record("wikidata", name, text) as entry:
         response = httpx.post(
             ENDPOINT,
@@ -103,10 +117,15 @@ def _run(name: str, text: str) -> list[dict]:
             timeout=90,
         )
         response.raise_for_status()
-        rows = [
-            {var: value["value"] for var, value in binding.items()}
-            for binding in response.json()["results"]["bindings"]
-        ]
+        try:
+            rows = [
+                {var: value["value"] for var, value in binding.items()}
+                for binding in response.json()["results"]["bindings"]
+            ]
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            raise ValueError(
+                f"respuesta con un formato inesperado ({type(error).__name__}: {error})"
+            ) from error
         entry["rows"] = len(rows)
     return rows
 
@@ -162,8 +181,8 @@ def street_facts(street_qid: str) -> dict | None:
     if cached is None:
         try:
             _fetch_streets([street_qid])
-        except httpx.HTTPError as error:
-            log.warning("Wikidata no disponible para %s: %s", street_qid, error)
+        except ERRORS as error:
+            log.warning("Wikidata no disponible para %s: %r", street_qid, error)
             return None
         with _lock:
             return _streets.get(street_qid)
@@ -221,6 +240,11 @@ def prefetch() -> None:
 
     De las calles se descargan solo las enlazadas en el grafo que no estén ya en la caché,
     así que basta con arrancar la app tras actualizar el grafo.
+
+    Corre en un hilo aparte y la web consulta `status` mientras siga en "pending" o "loading",
+    así que no deja escapar ningún error: los de Wikidata (ERRORS) se registran como aviso y los
+    demás, con su traza. En ambos casos el estado pasa a "error" (el de las calles, a "ready" si
+    hay alguna en la caché) y un fallo en las calles no impide cargar los lugares.
     """
     global _places
     cached_streets = _read(STREETS_CACHE)
@@ -234,8 +258,11 @@ def prefetch() -> None:
         if missing:
             _fetch_streets(missing)
         status["streets"] = "ready"
-    except httpx.HTTPError as error:
-        log.warning("No se han podido descargar las calles de Wikidata: %s", error)
+    except ERRORS as error:
+        log.warning("No se han podido descargar las calles de Wikidata: %r", error)
+        status["streets"] = "ready" if _streets else "error"
+    except Exception:
+        log.exception("Error inesperado al precargar las calles de Wikidata")
         status["streets"] = "ready" if _streets else "error"
 
     cached_places = _read(PLACES_CACHE)
@@ -247,11 +274,13 @@ def prefetch() -> None:
     status["places"] = "loading"
     try:
         fetched = _fetch_places()
-    except httpx.HTTPError as error:
-        log.warning("No se han podido descargar los lugares de Wikidata: %s", error)
+        with _lock:
+            _places = fetched
+            _write(PLACES_CACHE, fetched)
+        status["places"] = "ready"
+    except ERRORS as error:
+        log.warning("No se han podido descargar los lugares de Wikidata: %r", error)
         status["places"] = "error"
-        return
-    with _lock:
-        _places = fetched
-        _write(PLACES_CACHE, fetched)
-    status["places"] = "ready"
+    except Exception:
+        log.exception("Error inesperado al precargar los lugares de Wikidata")
+        status["places"] = "error"
