@@ -78,7 +78,7 @@ def _distance_label(meters: float) -> str:
 
 
 def _category_results(key: str, near: tuple[float, float] | None) -> list[dict]:
-    label = wikidata.CATEGORIES[key][0]
+    label = wikidata.CATEGORIES[key].label
     lat, lon = near or wikidata.CENTER
     places = [p for p in wikidata.places() if key in p["categories"]]
     wikidata.record_cached_places(key, len(places))
@@ -138,7 +138,7 @@ def _place_results(text: str) -> list[dict]:
             "ref": f"place:{p['qid']}",
             "label": p["label"],
             "detail": " · ".join(
-                [", ".join(wikidata.CATEGORIES[c][0] for c in p["categories"])]
+                [", ".join(wikidata.CATEGORIES[c].label for c in p["categories"])]
                 + ([p["description"]] if p.get("description") else [])
             ),
             "source": "wikidata",

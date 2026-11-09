@@ -9,6 +9,7 @@ import logging
 import re
 import threading
 from string import Template
+from typing import NamedTuple
 
 import httpx
 
@@ -28,16 +29,24 @@ PLACES_CACHE = DATA / "wikidata-places.json"
 CENTER = (40.416775, -3.70379)
 RADIUS_KM = 12
 
-# clave de búsqueda -> (etiqueta, clase de Wikidata)
+
+class Category(NamedTuple):
+    """Tipo de lugar de interés que se puede buscar ("un museo")."""
+
+    label: str  # nombre en la web
+    wikidata_class: str  # QID de la clase: vale ella y sus subclases (P31/P279*)
+
+
+# clave de búsqueda -> categoría
 CATEGORIES = {
-    "museo": ("Museo", "Q33506"),
-    "parque": ("Parque", "Q22698"),
-    "jardin": ("Jardín", "Q1107656"),
-    "plaza": ("Plaza", "Q174782"),
-    "monumento": ("Monumento", "Q4989906"),
-    "iglesia": ("Iglesia", "Q16970"),
-    "metro": ("Estación de metro", "Q928830"),
-    "estacion": ("Estación de tren", "Q55488"),
+    "museo": Category("Museo", "Q33506"),
+    "parque": Category("Parque", "Q22698"),
+    "jardin": Category("Jardín", "Q1107656"),
+    "plaza": Category("Plaza", "Q174782"),
+    "monumento": Category("Monumento", "Q4989906"),
+    "iglesia": Category("Iglesia", "Q16970"),
+    "metro": Category("Estación de metro", "Q928830"),
+    "estacion": Category("Estación de tren", "Q55488"),
 }
 
 PREFIXES = """PREFIX wd:       <http://www.wikidata.org/entity/>
@@ -131,7 +140,7 @@ def _run(name: str, text: str) -> list[dict]:
     return rows
 
 
-def _point(wkt: str | None) -> tuple[float, float] | None:
+def _wkt_point(wkt: str | None) -> tuple[float, float] | None:
     """'Point(lon lat)' -> (lat, lon)."""
     match = re.match(r"Point\(([-\d.eE]+) ([-\d.eE]+)\)", wkt or "")
     return (float(match[2]), float(match[1])) if match else None
@@ -160,7 +169,7 @@ def _fetch_streets(qids: list[str]) -> None:
         fact = facts[qid(row["item"])]
         fact.setdefault("label", row.get("itemLabel"))
         fact.setdefault("description", row.get("itemDescription"))
-        if (point := _point(row.get("coord"))) and "lat" not in fact:
+        if (point := _wkt_point(row.get("coord"))) and "lat" not in fact:
             fact["lat"], fact["lon"] = point
         if row.get("image"):
             fact.setdefault("image", _thumb(row["image"]))
@@ -198,9 +207,10 @@ def street_facts(street_qid: str) -> dict | None:
 
 
 def places_query(key: str) -> str:
-    label, cls = CATEGORIES[key]
+    category = CATEGORIES[key]
     return PLACES_QUERY.substitute(
-        label=label.lower(), cls=cls, lat=CENTER[0], lon=CENTER[1], radius=RADIUS_KM
+        label=category.label.lower(), cls=category.wikidata_class,
+        lat=CENTER[0], lon=CENTER[1], radius=RADIUS_KM,
     )
 
 
@@ -208,7 +218,7 @@ def _fetch_places() -> list[dict]:
     places: dict[str, dict] = {}
     for key in CATEGORIES:
         for row in _run(f"wikidata_places_{key}", places_query(key)):
-            point = _point(row.get("coord"))
+            point = _wkt_point(row.get("coord"))
             label = row.get("itemLabel")
             if not point or not label or re.fullmatch(r"Q\d+", label):
                 continue

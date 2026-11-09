@@ -28,32 +28,35 @@ def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -
     rows = graph.query("station_detail", id=station_id)
     if not rows:
         raise NotFound(f"No existe la estación {station_id}.")
-    s = rows[0]
+    station = rows[0]
 
+    state = STATES.get(station["state"], station["state"])
+    if not station["activated"]:
+        state += " (desactivada)"
     blocks = [{
         "source": "bicimad",
         "title": "Estación",
         "items": [
-            ["Estado", STATES.get(s["state"], s["state"]) + ("" if s["activated"] else " (desactivada)")],
-            ["Bases", str(s["capacity"])],
-            ["Bases inutilizables", str(s["unavailable"])],
-            ["Coordenadas", f"{s['lat']:.5f}, {s['lon']:.5f}"],
+            ["Estado", state],
+            ["Bases", str(station["capacity"])],
+            ["Bases inutilizables", str(station["unavailable"])],
+            ["Coordenadas", f"{station['lat']:.5f}, {station['lon']:.5f}"],
         ],
     }]
 
-    if s["street"]:
-        districts = district_names(s["districts"])
-        items = [["Calle", pretty(s["streetName"])]]
+    if station["street"]:
+        districts = district_names(station["districts"])
+        items = [["Calle", pretty(station["streetName"])]]
         if districts:
             items.append(["Distritos" if "," in districts else "Distrito", districts])
-        if s["postalCodes"]:
-            items.append(["Código postal", ", ".join(sorted(s["postalCodes"].split(",")))])
+        if station["postalCodes"]:
+            items.append(["Código postal", ", ".join(sorted(station["postalCodes"].split(",")))])
         blocks.append({"source": "callejero", "title": "Callejero", "items": items})
 
-    if s["wikidata"] and (facts := wikidata.street_facts(wikidata.qid(s["wikidata"]))):
+    if station["wikidata"] and (facts := wikidata.street_facts(wikidata.qid(station["wikidata"]))):
         blocks.append({
             "source": "wikidata",
-            "title": facts.get("label") or pretty(s["streetName"]),
+            "title": facts.get("label") or pretty(station["streetName"]),
             "description": facts.get("description"),
             "image": facts.get("image"),
             "link": wikidata.page_url(facts["qid"]),
@@ -64,10 +67,10 @@ def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -
         })
 
     return {
-        **station_summary(s),
+        **station_summary(station),
         "blocks": blocks,
         "nearestStations": nearest_stations(
-            s["id"], s["lat"], s["lon"], limit=nearest, usable_only=usable_only
+            station["id"], station["lat"], station["lon"], limit=nearest, usable_only=usable_only
         ),
     }
 
@@ -84,7 +87,7 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
     ) as entry:
         found = [
             {**p, "distance": round(d), "link": wikidata.page_url(p["qid"]),
-             "categories": [wikidata.CATEGORIES[c][0] for c in p["categories"]]}
+             "categories": [wikidata.CATEGORIES[c].label for c in p["categories"]]}
             for d, p in geo.by_distance(places, lat, lon, k=limit, max_m=radius_m)
         ]
         entry["rows"] = len(found)
