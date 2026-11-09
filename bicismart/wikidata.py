@@ -23,8 +23,9 @@ DATA = graph.ROOT / "data"
 STREETS_CACHE = DATA / "wikidata-streets.json"
 PLACES_CACHE = DATA / "wikidata-places.json"
 
-# Centro y radio de la búsqueda de lugares: Puerta del Sol, cubre todas las estaciones.
-CENTER = (40.4168, -3.7038)
+# Centro y radio de la búsqueda de lugares: Puerta del Sol, cubre todas las estaciones. Es el
+# mismo punto que SOL en app.js, así que «a … de Sol» mide desde el Sol del mapa.
+CENTER = (40.416775, -3.70379)
 RADIUS_KM = 12
 
 # clave de búsqueda -> (etiqueta, clase de Wikidata)
