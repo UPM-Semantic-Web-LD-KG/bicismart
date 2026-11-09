@@ -7,7 +7,7 @@ tiempos reales de los tramos elegidos. Si OSRM no responde, se muestran las esti
 
 import httpx
 
-from . import geo, graph, trace
+from . import enrich, geo, graph, trace
 from .geocode import Endpoint
 
 OSRM = "https://routing.openstreetmap.de/routed-{profile}/route/v1/driving/{coords}?overview=full&geometries=geojson"
@@ -73,10 +73,6 @@ def _candidates(endpoint: Endpoint, other: Endpoint, pool: list[dict]) -> list[d
     return geo.nearest(pool, endpoint.lat, endpoint.lon, CANDIDATES)
 
 
-def _station(row: dict) -> dict:
-    return {key: row[key] for key in ("id", "name", "lat", "lon", "capacity", "unavailable")}
-
-
 def _leg(mode: str, start: str, end: str, path: dict) -> dict:
     return {"mode": mode, "from": start, "to": end, **path}
 
@@ -116,8 +112,8 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
             "distance": sum(leg["distance"] for leg in legs),
             "dock": 2 * DOCK_S,
             "legs": legs,
-            "from_station": _station(start),
-            "to_station": _station(end),
+            "from_station": enrich.station_summary(start),
+            "to_station": enrich.station_summary(end),
             "estimated": any(leg["estimated"] for leg in legs),
         }
 

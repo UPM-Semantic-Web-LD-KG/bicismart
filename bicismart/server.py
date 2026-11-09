@@ -38,10 +38,7 @@ def status():
 
 @app.get("/api/stations")
 def stations():
-    return [
-        {key: s[key] for key in ("id", "name", "lat", "lon", "capacity", "usable")}
-        for s in geocode.all_stations()
-    ]
+    return [enrich.station_summary(s) for s in geocode.all_stations()]
 
 
 @app.get("/api/search")
