@@ -86,7 +86,10 @@ def _run(name: str, text: str, note: str | None = None) -> list[dict]:
     with trace.record("local", name, text, note=note) as entry:
         result = store.query(text)
         names = [variable.value for variable in result.variables]
-        rows = [dict(zip(names, (_python(solution[n]) for n in names))) for solution in result]
+        rows = [
+            dict(zip(names, (_python(solution[n]) for n in names), strict=True))
+            for solution in result
+        ]
         entry["rows"] = len(rows)
     return rows
 

@@ -57,7 +57,7 @@ def status():
 
 @app.get("/api/stations")
 def stations():
-    """Todas las estaciones del grafo en su forma básica (`enrich.station_summary`), para el mapa."""
+    """Estaciones del grafo para el mapa, en su forma básica (`enrich.station_summary`)."""
     return [enrich.station_summary(s) for s in geocode.all_stations()]
 
 

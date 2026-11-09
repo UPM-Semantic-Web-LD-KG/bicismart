@@ -28,7 +28,9 @@ def record(
     """
     if note:
         text = text.rstrip() + "\n\n" + "\n".join(f"# {line}" for line in note.splitlines())
-    entry = {"source": source, "name": name, "text": text, "rows": None, "ms": 0.0, "cached": cached}
+    entry = {
+        "source": source, "name": name, "text": text, "rows": None, "ms": 0.0, "cached": cached,
+    }
     began = time.perf_counter()
     try:
         yield entry

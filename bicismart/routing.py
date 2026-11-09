@@ -94,7 +94,9 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
 
     def cost(start: dict, end: dict) -> float:
         walk_in = 0 if origin.stations else estimate("foot", _coords(origin), _coords(start))
-        walk_out = 0 if destination.stations else estimate("foot", _coords(end), _coords(destination))
+        walk_out = (
+            0 if destination.stations else estimate("foot", _coords(end), _coords(destination))
+        )
         return walk_in + DOCK_S + estimate("bike", _coords(start), _coords(end)) + DOCK_S + walk_out
 
     pairs = [(cost(s, e), s, e) for s in starts for e in ends if s["id"] != e["id"]]
@@ -103,7 +105,8 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
     departures = [_coords(s) for s in starts] if origin.stations else [_coords(origin)]
     arrivals = [_coords(e) for e in ends] if destination.stations else [_coords(destination)]
     walk_from, walk_to = min(
-        ((a, b) for a in departures for b in arrivals), key=lambda pair: geo.distance_m(*pair[0], *pair[1])
+        ((a, b) for a in departures for b in arrivals),
+        key=lambda pair: geo.distance_m(*pair[0], *pair[1]),
     )
     walk = _leg("walk", origin.label, destination.label, route("foot", walk_from, walk_to))
 
@@ -112,10 +115,13 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
         _, start, end = min(pairs, key=lambda pair: pair[0])
         legs = []
         if not origin.stations:
-            legs.append(_leg("walk", origin.label, start["name"], route("foot", _coords(origin), _coords(start))))
-        legs.append(_leg("bike", start["name"], end["name"], route("bike", _coords(start), _coords(end))))
+            path = route("foot", _coords(origin), _coords(start))
+            legs.append(_leg("walk", origin.label, start["name"], path))
+        path = route("bike", _coords(start), _coords(end))
+        legs.append(_leg("bike", start["name"], end["name"], path))
         if not destination.stations:
-            legs.append(_leg("walk", end["name"], destination.label, route("foot", _coords(end), _coords(destination))))
+            path = route("foot", _coords(end), _coords(destination))
+            legs.append(_leg("walk", end["name"], destination.label, path))
         bike = {
             "duration": sum(leg["duration"] for leg in legs) + 2 * DOCK_S,
             "distance": sum(leg["distance"] for leg in legs),

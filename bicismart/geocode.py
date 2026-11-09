@@ -19,7 +19,9 @@ STREET_TYPES = {
     "COSTANILLA", "PASAJE", "CALLEJON", "BULEVAR", "VIA", "PLAZUELA",
 }
 PARTICLES = {"DE", "DEL", "LA", "LAS", "LOS", "EL"}
-CATEGORY_ALIASES = {"estacion de metro": "metro", "estacion de tren": "estacion", "tren": "estacion"}
+CATEGORY_ALIASES = {
+    "estacion de metro": "metro", "estacion de tren": "estacion", "tren": "estacion",
+}
 
 
 @dataclass
@@ -74,7 +76,9 @@ def _stations_label(count: int) -> str:
 
 
 def _distance_label(meters: float) -> str:
-    return f"{meters / 1000:.1f} km".replace(".", ",") if meters >= 1000 else f"{round(meters / 10) * 10:.0f} m"
+    if meters >= 1000:
+        return f"{meters / 1000:.1f} km".replace(".", ",")
+    return f"{round(meters / 10) * 10:.0f} m"
 
 
 def _category_results(key: str, near: tuple[float, float] | None) -> list[dict]:
@@ -200,8 +204,8 @@ def _street(key: str) -> Endpoint:
         lat, lon = geo.centroid(stations)
         return Endpoint(
             name, lat, lon, "callejero",
-            f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): el trayecto empieza o termina "
-            "en una de ellas, sin tramo a pie.",
+            f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): "
+            "el trayecto empieza o termina en una de ellas, sin tramo a pie.",
             csv={"verdict": "partial", "text": (
                 "Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
                 "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación."
@@ -213,8 +217,11 @@ def _street(key: str) -> Endpoint:
     if facts and "lat" in facts:
         return Endpoint(
             name, facts["lat"], facts["lon"], "wikidata",
-            "La calle no tiene estaciones; se usan sus coordenadas en Wikidata (owl:sameAs → P625).",
-            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."},
+            "La calle no tiene estaciones; se usan sus coordenadas en Wikidata "
+            "(owl:sameAs → P625).",
+            csv={"verdict": "no", "text": (
+                "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."
+            )},
         )
 
     nearby = graph.query("neighborhood_stations", street=node)

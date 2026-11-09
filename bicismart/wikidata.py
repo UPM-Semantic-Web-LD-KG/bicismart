@@ -203,7 +203,8 @@ def street_facts(street_qid: str) -> dict | None:
             return None
         with _lock:
             return _streets.get(street_qid)
-    with trace.record("wikidata", "wikidata_streets", street_query([street_qid]), cached=True) as entry:
+    text = street_query([street_qid])
+    with trace.record("wikidata", "wikidata_streets", text, cached=True) as entry:
         entry["rows"] = 1
     return cached
 
@@ -252,7 +253,8 @@ def place(place_qid: str) -> dict | None:
 
 def record_cached_places(key: str, rows: int) -> None:
     """Deja constancia en el panel de que se han usado los lugares cacheados de una categoría."""
-    with trace.record("wikidata", f"wikidata_places_{key}", places_query(key), cached=True) as entry:
+    text = places_query(key)
+    with trace.record("wikidata", f"wikidata_places_{key}", text, cached=True) as entry:
         entry["rows"] = rows
 
 

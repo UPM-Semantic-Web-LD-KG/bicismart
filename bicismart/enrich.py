@@ -1,4 +1,4 @@
-"""Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
+"""Ficha de una estación, estaciones y lugares cercanos, con BiciMAD, Callejero y Wikidata."""
 
 from . import geo, graph, trace, wikidata
 from .errors import NotFound
