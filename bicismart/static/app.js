@@ -367,12 +367,8 @@ function setMode(mode) {
     return;
   }
   clearExplore();
-  if (state.plan) {
-    renderPlan();
-    drawPlan();
-  } else {
-    welcome();
-  }
+  if (state.plan) showPlan();
+  else welcome();
 }
 
 tabs.forEach((tab, i) => {
@@ -513,6 +509,16 @@ $("#swap").addEventListener("click", () => {
 
 // ---------- resultados ----------
 
+// Mensaje en el panel de resultados: "loading" mientras llega una respuesta, o "error".
+function showMessage(kind, text) {
+  results.innerHTML = html`<p class="${kind}">${text}</p>`;
+}
+
+// Tarjeta del panel con su título y, si se indica, la etiqueta de la fuente de sus datos.
+function card(title, source, body, id = null) {
+  return html`<div class="card"${id ? html` id="${id}"` : ""}><h2>${title}${source ? html` ${badge(source)}` : ""}</h2>${body}</div>`;
+}
+
 function optionCard(mode, title, option, recommended) {
   return html`<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-mode="${mode}">
     <div class="mode">${title}</div>
@@ -529,32 +535,37 @@ function endpointLine(role, endpoint) {
     <p>${endpoint.note}</p></div></div>`;
 }
 
+// Distancia de un tramo, marcada si es una estimación en línea recta (sin OSRM).
+function legDistance(leg) {
+  return `${km(leg.distance)}${leg.estimated ? " · estimado" : ""}`;
+}
+
+// Paso «Camina…» de un tramo a pie, hasta leg.to.
+function walkStep(leg) {
+  return html`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
+    <span class="sub">${legDistance(leg)}</span></li>`;
+}
+
+// Pasos de un tramo en bici: coger la bici, pedalear y dejarla. dock es el tiempo de cada maniobra.
+function bikeSteps(leg, dock) {
+  return html`<li class="dock">Coge una bici en <strong>${leg.from}</strong><span class="sub">${dock} para desanclarla</span></li>
+    <li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
+    <span class="sub">${legDistance(leg)}</span></li>
+    <li class="dock">Deja la bici en <strong>${leg.to}</strong><span class="sub">${dock} para anclarla</span></li>`;
+}
+
 function stepsCard(bike) {
   // bike.dock es el tiempo de sacar la bici y de dejarla: la mitad para cada paso.
   const dock = minutes(bike.dock / 2);
-  const steps = [];
-  for (const leg of bike.legs) {
-    const estimated = leg.estimated ? " · estimado" : "";
-    if (leg.mode === "walk") {
-      steps.push(html`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
-        <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-    } else {
-      steps.push(html`<li class="dock">Coge una bici en <strong>${leg.from}</strong><span class="sub">${dock} para desanclarla</span></li>`);
-      steps.push(html`<li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
-        <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-      steps.push(html`<li class="dock">Deja la bici en <strong>${leg.to}</strong><span class="sub">${dock} para anclarla</span></li>`);
-    }
-  }
-  return html`<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">${steps}</ol></div>`;
+  const steps = bike.legs.map((leg) => (leg.mode === "walk" ? walkStep(leg) : bikeSteps(leg, dock)));
+  return card("Itinerario", "osrm", html`<ol class="steps">${steps}</ol>`);
 }
 
 function walkCard(plan) {
   const faster = plan.recommended === "walk" && plan.bike
     ? html`<p class="sub">Para este trayecto es más rápido ir andando que coger y dejar una bici.</p>`
     : "";
-  return html`<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">
-    <li class="walk">Camina ${minutes(plan.walk.duration)} hasta <strong>${plan.destination.label}</strong>
-    <span class="sub">${km(plan.walk.distance)}${plan.walk.estimated ? " · estimado" : ""}</span></li></ol>${faster}</div>`;
+  return card("Itinerario", "osrm", html`<ol class="steps">${walkStep(plan.walk)}</ol>${faster}`);
 }
 
 // Un bloque de la ficha de una estación, con el color y la etiqueta de su fuente.
@@ -571,14 +582,14 @@ function stationBlock(block) {
   ]}</div>`;
 }
 
-function stationCard(card, title) {
-  return html`<div class="card"><h2>${title}: ${card.name}</h2>${card.blocks.map(stationBlock)}</div>`;
+function stationCard(station, title) {
+  return card(`${title}: ${station.name}`, null, station.blocks.map(stationBlock));
 }
 
 function nearbyCard(places, title) {
   const items = places.map((p) => html`<li><a href="${p.link}" target="_blank" rel="noopener">${p.label}</a>
     <span>${p.categories.join(", ")} · ${km(p.distance)}</span></li>`);
-  return html`<div class="card"><h2>${title} ${badge("wikidata")}</h2><ul class="places">${items}</ul></div>`;
+  return card(title, "wikidata", html`<ul class="places">${items}</ul>`);
 }
 
 // Una estación en una lista: enlace a su ficha, estado, bases y distancia. En Explorar, las
@@ -590,7 +601,7 @@ function stationItem(s) {
 }
 
 function nearestStationsCard(stations, title = "Estaciones más cercanas") {
-  return html`<div class="card"><h2>${title} ${badge("bicimad")}</h2><ul class="places">${stations.map(stationItem)}</ul></div>`;
+  return card(title, "bicimad", html`<ul class="places">${stations.map(stationItem)}</ul>`);
 }
 
 // Los enlaces de las listas de estaciones abren la ficha de esa estación. Se escucha en el panel
@@ -629,10 +640,10 @@ function bindWhy() {
 
 function renderPlan() {
   const plan = state.plan;
-  const cards = plan.cards.map((card, i) => [
-    stationCard(card, i ? "Llegada" : "Salida"),
-    card.nearestStations?.length
-      ? nearestStationsCard(card.nearestStations, i ? "Alternativas a la llegada" : "Alternativas a la salida")
+  const cards = plan.cards.map((station, i) => [
+    stationCard(station, i ? "Llegada" : "Salida"),
+    station.nearestStations?.length
+      ? nearestStationsCard(station.nearestStations, i ? "Alternativas a la llegada" : "Alternativas a la salida")
       : "",
   ]);
   results.innerHTML = html`<div class="options">
@@ -646,10 +657,15 @@ function renderPlan() {
     ${whyPanel(plan.contributions, plan.queries)}`;
   results.querySelectorAll(".option-card").forEach((button) => button.addEventListener("click", () => {
     state.shown = button.dataset.mode;
-    renderPlan();
-    drawPlan();
+    showPlan();
   }));
   bindWhy();
+}
+
+// Pinta la ruta guardada en el panel y en el mapa.
+function showPlan() {
+  renderPlan();
+  drawPlan();
 }
 
 let routeSequence = 0;
@@ -659,7 +675,7 @@ async function computeRoute() {
   const ownsPanel = claimResults("route");
   // El origen pedido: mientras llega la respuesta, el usuario puede estar cambiando state.from.
   const from = state.from;
-  results.innerHTML = '<p class="loading">Calculando la ruta…</p>';
+  showMessage("loading", "Calculando la ruta…");
   try {
     const plan = await api("/api/route", {
       from: state.from.ref,
@@ -674,13 +690,11 @@ async function computeRoute() {
     from.lon = plan.origin.lon;
     // Si entretanto se ha pedido otra cosa, la ruta se guarda para «Volver a la ruta» o la
     // pestaña Ruta, pero no se pinta.
-    if (!ownsPanel()) return;
-    renderPlan();
-    drawPlan();
+    if (ownsPanel()) showPlan();
   } catch (error) {
     if (mine !== routeSequence || !ownsPanel()) return;
     routeLayer.clearLayers();
-    results.innerHTML = html`<p class="error">${error.message}</p>`;
+    showMessage("error", error.message);
   }
 }
 
@@ -692,14 +706,14 @@ function backButton() {
     return { html: html`<button type="button" class="back">← Volver a la lista</button>`, go };
   }
   if (state.mode === "route" && state.plan) {
-    return { html: html`<button type="button" class="back">← Volver a la ruta</button>`, go: () => { renderPlan(); drawPlan(); } };
+    return { html: html`<button type="button" class="back">← Volver a la ruta</button>`, go: showPlan };
   }
   return null;
 }
 
 async function showStation(id) {
   const ownsPanel = claimResults();
-  results.innerHTML = '<p class="loading">Cargando la estación…</p>';
+  showMessage("loading", "Cargando la estación…");
   try {
     const data = await api(`/api/station/${encodeURIComponent(id)}`);
     if (!ownsPanel()) return;
@@ -721,7 +735,7 @@ async function showStation(id) {
     bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
   } catch (error) {
-    if (ownsPanel()) results.innerHTML = html`<p class="error">${error.message}</p>`;
+    if (ownsPanel()) showMessage("error", error.message);
   }
 }
 
@@ -730,17 +744,17 @@ function exampleButtons(examples) {
 }
 
 function welcome() {
-  results.innerHTML = html`<div class="card"><h2>¿A dónde vas?</h2>
+  results.innerHTML = card("¿A dónde vas?", null, html`
     <p class="sub">Elige el origen con tu ubicación o haciendo clic en el mapa, y escribe el destino:
     una calle (el número se ignora), un lugar, un tipo de lugar o una estación.</p>
-    <p class="sub">Ejemplos desde la Puerta del Sol:</p>${exampleButtons(EXAMPLES)}</div>`;
+    <p class="sub">Ejemplos desde la Puerta del Sol:</p>${exampleButtons(EXAMPLES)}`);
 }
 
 function exploreWelcome() {
-  results.innerHTML = html`<div class="card"><h2>¿Qué estaciones hay cerca?</h2>
+  results.innerHTML = card("¿Qué estaciones hay cerca?", null, html`
     <p class="sub">Escribe una calle, un lugar, un tipo de lugar o una estación, o haz clic en el mapa,
     y verás las estaciones BiciMAD que tiene alrededor, de la más cercana a la más lejana.</p>
-    <p class="sub">Ejemplos:</p>${exampleButtons(EXPLORE_EXAMPLES)}</div>`;
+    <p class="sub">Ejemplos:</p>${exampleButtons(EXPLORE_EXAMPLES)}`);
 }
 
 // Los ejemplos escriben en el campo del modo activo y muestran sus sugerencias.
@@ -774,7 +788,7 @@ function setCenter(place) {
 async function exploreAround(place, loading = true) {
   const mine = ++exploreSequence;
   const ownsPanel = claimResults("explore");
-  if (loading) results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
+  if (loading) showMessage("loading", "Buscando estaciones…");
   try {
     const data = await api("/api/explore", { ref: place.ref, label: place.label, radius: state.radius });
     if (mine !== exploreSequence) return;
@@ -786,7 +800,7 @@ async function exploreAround(place, loading = true) {
     if (mine !== exploreSequence) return;
     state.explore = null;
     clearExplore();
-    if (ownsPanel()) results.innerHTML = html`<p class="error">${error.message}</p>`;
+    if (ownsPanel()) showMessage("error", error.message);
   }
 }
 
@@ -825,8 +839,7 @@ function exploreStationsCard(data) {
     count = `${shown.length} de ${stationsLabel(total)}, de la más cercana a la más lejana en línea recta. Los filtros del mapa ocultan el resto.`;
   }
   const list = shown.length ? html`<ul class="places">${shown.map(stationItem)}</ul>` : "";
-  return html`<div class="card" id="explore-stations"><h2>Estaciones a ${radius} o menos ${badge("bicimad")}</h2>
-    <p class="sub">${count}</p>${list}</div>`;
+  return card(`Estaciones a ${radius} o menos`, "bicimad", html`<p class="sub">${count}</p>${list}`, "explore-stations");
 }
 
 function renderExplore() {
