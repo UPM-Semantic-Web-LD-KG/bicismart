@@ -12,12 +12,14 @@ const GROUPS = { street: "Calles · Callejero", place: "Lugares · Wikidata", st
 const SOL = [40.416775, -3.70379];
 const EXAMPLES = ["Bravo Murillo 120", "Museo del Prado", "un parque", "Agustín de Foxá"];
 const EXPLORE_EXAMPLES = ["Museo del Prado", "Alcalá", "un parque", "Metro Sol"];
+const RADII = { 300: "300 m", 500: "500 m", 1000: "1 km" };
 
 // mode: "route" (origen y destino) o "explore" (estaciones cerca de un lugar, FR2).
-// center es el lugar de Explorar y explore, la última respuesta de /api/explore.
+// center es el lugar elegido en el campo de Explorar; explore, la última respuesta de
+// /api/explore junto con el lugar que se pidió (explore.place).
 const state = {
   mode: "route", from: null, to: null, plan: null, shown: null, whyOpen: false,
-  center: null, explore: null,
+  center: null, radius: 500, explore: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -443,10 +445,16 @@ function nearbyCard(places, title) {
   return `<div class="card"><h2>${esc(title)} ${badge("wikidata")}</h2><ul class="places">${items.join("")}</ul></div>`;
 }
 
+// Una estación en una lista: enlace a su ficha, estado, bases y distancia. En Explorar, las
+// estaciones de la calle buscada (bm:locatedOnStreet) se marcan «en la calle».
+function stationItem(s) {
+  const where = s.onStreet ? badge("callejero", "en la calle") : km(s.distance);
+  return `<li><a href="#" data-station="${esc(s.id)}">${esc(s.name)}</a>
+    <span>${s.usable ? "" : `${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${where}</span></li>`;
+}
+
 function nearestStationsCard(stations, title = "Estaciones más cercanas") {
-  const items = stations.map((s) => `<li><a href="#" data-station="${esc(s.id)}">${esc(s.name)}</a>
-    <span>${s.usable ? "" : `${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${km(s.distance)}</span></li>`);
-  return `<div class="card"><h2>${esc(title)} ${badge("bicimad")}</h2><ul class="places">${items.join("")}</ul></div>`;
+  return `<div class="card"><h2>${esc(title)} ${badge("bicimad")}</h2><ul class="places">${stations.map(stationItem).join("")}</ul></div>`;
 }
 
 // Los enlaces de las listas de estaciones abren la ficha de esa estación.
@@ -599,23 +607,32 @@ function setCenter(place) {
   setMode("explore");
   state.center = place;
   $("#center-input").value = place.label;
-  exploreAround();
+  exploreAround(place);
 }
 
-async function exploreAround() {
+// Pide las estaciones alrededor de place con el radio elegido. Al cambiar solo el radio
+// (loading = false) se deja la lista anterior hasta que llega la nueva.
+async function exploreAround(place, loading = true) {
   const mine = ++exploreSequence;
-  results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
+  if (loading) results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
   try {
-    const data = await api("/api/explore", { ref: state.center.ref, label: state.center.label });
+    const data = await api("/api/explore", { ref: place.ref, label: place.label, radius: state.radius });
     if (mine !== exploreSequence) return;
-    state.explore = data;
+    state.explore = { ...data, place };
     if (state.mode === "explore") renderExplore();
   } catch (error) {
     if (mine !== exploreSequence) return;
     state.explore = null;
-    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (state.mode === "explore") results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
 }
+
+$("#explore-form").addEventListener("change", (event) => {
+  if (event.target.name !== "radius") return;
+  state.radius = Number(event.target.value);
+  const place = state.explore?.place ?? state.center;
+  if (place) exploreAround(place, false);
+});
 
 function centerCard(center) {
   return `<div class="card center-card"><p class="kicker">Lugar</p>
@@ -623,9 +640,23 @@ function centerCard(center) {
     <p class="sub">${esc(center.note)}</p></div>`;
 }
 
+function exploreStationsCard(data) {
+  const radius = RADII[data.radius];
+  const count = data.stations.length;
+  let body;
+  if (!count) {
+    body = `<p class="sub">No hay ninguna estación a ${radius} o menos.${data.radius < 1000 ? " Prueba con un radio mayor." : ""}</p>`;
+  } else {
+    body = `<p class="sub">${count === 1 ? "1 estación" : `${count} estaciones`}, de la más cercana a la más lejana en línea recta.</p>
+      <ul class="places">${data.stations.map(stationItem).join("")}</ul>`;
+  }
+  return `<div class="card"><h2>Estaciones a ${radius} o menos ${badge("bicimad")}</h2>${body}</div>`;
+}
+
 function renderExplore() {
   const data = state.explore;
-  results.innerHTML = centerCard(data.center) + whyPanel(data.contributions, data.queries);
+  results.innerHTML = centerCard(data.center) + exploreStationsCard(data) + whyPanel(data.contributions, data.queries);
+  bindStationLinks();
   bindWhy();
 }
 
