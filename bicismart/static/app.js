@@ -387,10 +387,18 @@ function nearbyCard(places, title) {
   return `<div class="card"><h2>${esc(title)} ${badge("wikidata")}</h2><ul class="places">${items.join("")}</ul></div>`;
 }
 
-function nearestStationsCard(stations) {
+function nearestStationsCard(stations, title = "Estaciones más cercanas") {
   const items = stations.map((s) => `<li><a href="#" data-station="${esc(s.id)}">${esc(s.name)}</a>
     <span>${s.usable ? "" : `${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${km(s.distance)}</span></li>`);
-  return `<div class="card"><h2>Estaciones más cercanas ${badge("bicimad")}</h2><ul class="places">${items.join("")}</ul></div>`;
+  return `<div class="card"><h2>${esc(title)} ${badge("bicimad")}</h2><ul class="places">${items.join("")}</ul></div>`;
+}
+
+// Los enlaces de las listas de estaciones abren la ficha de esa estación.
+function bindStationLinks() {
+  results.querySelectorAll("[data-station]").forEach((link) => link.addEventListener("click", (event) => {
+    event.preventDefault();
+    showStation(link.dataset.station);
+  }));
 }
 
 function verdictClass(text) {
@@ -433,7 +441,12 @@ function renderPlan() {
   html += "</div>";
   html += `<div class="card">${endpointLine("Desde", plan.origin)}${endpointLine("Hasta", plan.destination)}</div>`;
   html += state.shown === "bike" && plan.bike ? stepsCard(plan.bike) : walkCard(plan);
-  plan.cards.forEach((card, i) => { html += stationCard(card, i ? "Llegada" : "Salida"); });
+  plan.cards.forEach((card, i) => {
+    html += stationCard(card, i ? "Llegada" : "Salida");
+    if (card.nearestStations?.length) {
+      html += nearestStationsCard(card.nearestStations, i ? "Alternativas a la llegada" : "Alternativas a la salida");
+    }
+  });
   if (plan.nearby.length) html += nearbyCard(plan.nearby, "Cerca del destino");
   html += whyPanel(plan.contributions, plan.queries);
   results.innerHTML = html;
@@ -442,6 +455,7 @@ function renderPlan() {
     renderPlan();
     drawPlan();
   }));
+  bindStationLinks();
   bindWhy();
 }
 
@@ -479,10 +493,7 @@ async function showStation(id) {
     html += whyPanel(null, data.queries);
     results.innerHTML = html;
     $("#station-actions").append(actions((act) => setEndpoint(act, { ref: `station:${s.id}`, label: s.name })));
-    results.querySelectorAll("[data-station]").forEach((link) => link.addEventListener("click", (event) => {
-      event.preventDefault();
-      showStation(link.dataset.station);
-    }));
+    bindStationLinks();
     $(".back", results)?.addEventListener("click", () => { renderPlan(); drawPlan(); });
     bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));

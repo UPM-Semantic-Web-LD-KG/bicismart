@@ -83,11 +83,17 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
     return found
 
 
-def nearest_stations(station_id: str, lat: float, lon: float, limit: int = 5) -> list[dict]:
-    """Las `limit` estaciones más cercanas a una estación, sin contarla, en línea recta."""
+def nearest_stations(
+    station_id: str, lat: float, lon: float, limit: int = 5, usable_only: bool = False
+) -> list[dict]:
+    """Las `limit` estaciones más cercanas a una estación, sin contarla, en línea recta.
+
+    Con `usable_only` solo cuentan las que se pueden usar: es lo que interesa como alternativa
+    a una estación de la ruta.
+    """
     cached = geocode.all_stations.cache_info().currsize > 0
     stations = geocode.all_stations()
-    others = [s for s in stations if s["id"] != station_id]
+    others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
     found = [
         {
             "id": s["id"],
@@ -104,7 +110,8 @@ def nearest_stations(station_id: str, lat: float, lon: float, limit: int = 5) ->
             "local", "stations",
             (graph.QUERIES / "stations.rq").read_text(encoding="utf-8")
             + f"\n# Se usan las {len(stations)} estaciones en caché y se eligen las {limit} más cercanas"
-            + "\n# en línea recta (haversine), sin contar la propia estación.",
+            + (" utilizables" if usable_only else "")
+            + f"\n# a la estación {station_id} en línea recta (haversine), sin contarla a ella.",
             cached=True,
         ) as entry:
             entry["rows"] = len(found)
