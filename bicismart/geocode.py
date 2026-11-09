@@ -30,7 +30,9 @@ class Endpoint:
     lon: float
     source: str  # de dónde sale la ubicación: user, bicimad, callejero o wikidata
     note: str  # cómo se ha resuelto, para enseñarlo al usuario
-    csv: str | None = None  # qué se podría hacer solo con el CSV de BiciMAD
+    # Qué se podría hacer solo con el CSV de BiciMAD, para el panel «¿Por qué ontología?»:
+    # {"verdict": "yes" | "partial" | "no", "text": …}.
+    csv: dict | None = None
     stations: list[dict] | None = None  # estaciones a las que se llega sin tramo a pie
     approximate: bool = False
 
@@ -191,8 +193,10 @@ def _street(key: str) -> Endpoint:
             name, lat, lon, "callejero",
             f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): el trayecto empieza o termina "
             "en una de ellas, sin tramo a pie.",
-            csv="Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
-                "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación.",
+            csv={"verdict": "partial", "text": (
+                "Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
+                "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación."
+            )},
             stations=stations,
         )
 
@@ -201,7 +205,7 @@ def _street(key: str) -> Endpoint:
         return Endpoint(
             name, facts["lat"], facts["lon"], "wikidata",
             "La calle no tiene estaciones; se usan sus coordenadas en Wikidata (owl:sameAs → P625).",
-            csv="No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."},
         )
 
     nearby = graph.query("neighborhood_stations", street=node)
@@ -212,7 +216,7 @@ def _street(key: str) -> Endpoint:
             "La calle no tiene estaciones ni coordenadas en Wikidata; se sitúa de forma aproximada "
             "en el centro de las estaciones de su distrito y barrio (bm:districtCode, "
             "bm:neighborhoodCode).",
-            csv="No: el CSV de BiciMAD no tiene distritos ni barrios.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no tiene distritos ni barrios."},
             approximate=True,
         )
     raise LookupError(f"No se ha podido situar la calle {name}.")
@@ -233,13 +237,13 @@ def resolve(ref: str, label: str | None = None) -> Endpoint:
             return Endpoint(
                 station["name"], station["lat"], station["lon"], "bicimad",
                 "Estación BiciMAD elegida directamente.",
-                csv="Sí: el CSV tiene la estación y sus coordenadas.",
+                csv={"verdict": "yes", "text": "Sí: el CSV tiene la estación y sus coordenadas."},
                 stations=[station],
             )
         return Endpoint(
             station["name"], station["lat"], station["lon"], "bicimad",
             "Esta estación no se puede usar ahora; se buscan las más cercanas.",
-            csv="Sí: el CSV tiene la estación y su estado.",
+            csv={"verdict": "yes", "text": "Sí: el CSV tiene la estación y su estado."},
         )
 
     if kind == "place":
@@ -249,7 +253,7 @@ def resolve(ref: str, label: str | None = None) -> Endpoint:
         return Endpoint(
             place["label"], place["lat"], place["lon"], "wikidata",
             "Coordenadas del lugar en Wikidata (P625).",
-            csv="No: el CSV de BiciMAD no contiene lugares de interés.",
+            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no contiene lugares de interés."},
         )
 
     if kind == "street":

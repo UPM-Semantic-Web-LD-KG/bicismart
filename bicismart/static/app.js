@@ -540,19 +540,13 @@ results.addEventListener("click", (event) => {
   showStation(link.dataset.station);
 });
 
-function verdictClass(text) {
-  if (text.startsWith("No")) return "no";
-  if (text.startsWith("Sí")) return "yes";
-  return "";
-}
-
 function whyPanel(contributions, queries) {
   let html = `<details class="why" ${state.whyOpen ? "open" : ""}><summary>¿Por qué ontología?</summary><div>`;
   if (contributions) {
     html += `<p class="sub">Qué aporta cada fuente a esta respuesta y qué se podría hacer solo con el CSV de BiciMAD.</p>
       <table><thead><tr><th>Dato</th><th>Fuente</th><th>Solo con el CSV</th></tr></thead><tbody>
       ${contributions.map((c) => `<tr><td>${esc(c.what)}<br><span class="sub">${esc(c.how)}</span></td>
-        <td>${badge(c.source)}</td><td class="${verdictClass(c.csv)}">${esc(c.csv)}</td></tr>`).join("")}
+        <td>${badge(c.source)}</td><td class="${esc(c.csv.verdict ?? "")}">${esc(c.csv.text)}</td></tr>`).join("")}
       </tbody></table>`;
   }
   html += `<h3>Consultas ejecutadas (${queries.length})</h3>`;

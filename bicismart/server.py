@@ -61,12 +61,16 @@ def _endpoint(endpoint: Endpoint) -> dict:
 
 
 def _contributions(origin: Endpoint, destination: Endpoint, cards: list[dict], nearby: list[dict]) -> list[dict]:
-    """Qué aporta cada fuente a esta ruta y qué se podría hacer solo con el CSV de BiciMAD."""
+    """Qué aporta cada fuente a esta ruta y qué se podría hacer solo con el CSV de BiciMAD.
+
+    `csv` lleva el veredicto ("yes", "partial", "no" o None si no se aplica) y el texto que se
+    muestra.
+    """
     rows = [{
         "what": "Estaciones utilizables, posición y bases",
         "source": "bicimad",
         "how": "bm:BikeStation, bm:hasPoint, bm:hasState",
-        "csv": "Sí",
+        "csv": {"verdict": "yes", "text": "Sí"},
     }]
     for role, endpoint in (("Origen", origin), ("Destino", destination)):
         if endpoint.csv:
@@ -81,27 +85,28 @@ def _contributions(origin: Endpoint, destination: Endpoint, cards: list[dict], n
             "what": "Calle, distrito y código postal de las estaciones",
             "source": "callejero",
             "how": "bm:locatedOnStreet → bm:Street (bm:districtCode, bm:postalCode)",
-            "csv": "No: el CSV de BiciMAD no tiene distrito ni código postal.",
+            "csv": {"verdict": "no", "text": "No: el CSV de BiciMAD no tiene distrito ni código postal."},
         })
     if any(b["source"] == "wikidata" for card in cards for b in card["blocks"]):
         rows.append({
             "what": "Historia de la calle: a quién homenajea, imagen",
             "source": "wikidata",
             "how": "bm:Street owl:sameAs → Wikidata (P138, P18)",
-            "csv": "No",
+            "csv": {"verdict": "no", "text": "No"},
         })
     if nearby:
         rows.append({
             "what": "Lugares de interés junto al destino",
             "source": "wikidata",
             "how": "Wikidata (P31/P279*, P625) y distancia a la estación",
-            "csv": "No",
+            "csv": {"verdict": "no", "text": "No"},
         })
     rows.append({
         "what": "Tiempos y trazado por las calles",
         "source": "osrm",
         "how": "OSRM sobre OpenStreetMap (servicio externo)",
-        "csv": "Igual: no depende del grafo",
+        # Sin veredicto: OSRM no usa el grafo, así que daría lo mismo solo con el CSV.
+        "csv": {"verdict": None, "text": "Igual: no depende del grafo"},
     })
     return rows
 
@@ -162,7 +167,7 @@ def _explore_contributions(center: Endpoint) -> list[dict]:
         "what": "Estaciones dentro del radio: posición, bases y estado",
         "source": "bicimad",
         "how": "bm:BikeStation, bm:hasPoint, bm:hasState y distancia en línea recta",
-        "csv": "Sí, si se conoce el centro",
+        "csv": {"verdict": "yes", "text": "Sí, si se conoce el centro"},
     })
     return rows
 
