@@ -39,6 +39,19 @@ Callejero, `owl:sameAs` a Wikidata) y mostrarlo:
   contra `bicismart.server.app` y prueba la búsqueda, las rutas y las fichas de estación.
   Con `with TestClient(app)` también se ejecuta la precarga de Wikidata.
 
+## Cambios y PRs
+
+- Todo cambio va en una rama creada desde `main` y se propone con un PR contra `main`. No hagas
+  commits directamente en `main` ni fusiones PRs: los revisa y los fusiona el equipo.
+- Título, descripción y mensajes de commit en español. La descripción explica qué cambia, cómo
+  se ha probado y sus limitaciones.
+- Siempre que sea posible, y sobre todo si cambia algo visible, añade capturas en una sección
+  «Capturas» de la descripción:
+  - Hazlas con Selenium y Firefox headless, con el servidor en un puerto distinto del 8000.
+  - Súbelas a la rama `screenshots`, que no comparte historia con `main`, en la carpeta
+    `pr-<número>/`. Nunca las subas a `main` ni a la rama del PR.
+  - Enlázalas con `<URL del repositorio>/blob/screenshots/pr-<número>/<fichero>.png?raw=true`.
+
 ## Datos
 
 - `graph/` contiene lo que necesita la app: el grafo (`bicimad-with-links-updated.ttl`) y la
