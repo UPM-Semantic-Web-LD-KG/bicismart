@@ -466,6 +466,8 @@ function endpointLine(role, endpoint) {
 }
 
 function stepsCard(bike) {
+  // bike.dock es el tiempo de sacar la bici y de dejarla: la mitad para cada paso.
+  const dock = minutes(bike.dock / 2);
   const steps = [];
   for (const leg of bike.legs) {
     const estimated = leg.estimated ? " · estimado" : "";
@@ -473,10 +475,10 @@ function stepsCard(bike) {
       steps.push(`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
         <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
     } else {
-      steps.push(`<li class="dock">Coge una bici en <strong>${esc(leg.from)}</strong><span class="sub">1 min para desanclarla</span></li>`);
+      steps.push(`<li class="dock">Coge una bici en <strong>${esc(leg.from)}</strong><span class="sub">${dock} para desanclarla</span></li>`);
       steps.push(`<li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
         <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-      steps.push(`<li class="dock">Deja la bici en <strong>${esc(leg.to)}</strong><span class="sub">1 min para anclarla</span></li>`);
+      steps.push(`<li class="dock">Deja la bici en <strong>${esc(leg.to)}</strong><span class="sub">${dock} para anclarla</span></li>`);
     }
   }
   return `<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">${steps.join("")}</ol></div>`;

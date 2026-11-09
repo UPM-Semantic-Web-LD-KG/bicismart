@@ -110,7 +110,7 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
         bike = {
             "duration": sum(leg["duration"] for leg in legs) + 2 * DOCK_S,
             "distance": sum(leg["distance"] for leg in legs),
-            "dock": 2 * DOCK_S,
+            "dock": 2 * DOCK_S,  # sacar la bici y dejarla
             "legs": legs,
             "fromStation": enrich.station_summary(start),
             "toStation": enrich.station_summary(end),
