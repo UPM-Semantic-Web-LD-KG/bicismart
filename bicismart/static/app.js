@@ -135,17 +135,24 @@ map.createPane("explore-area").style.zIndex = 350;
 const exploreLayer = L.layerGroup().addTo(map);
 
 // Botones para usar un sitio: «Salir de aquí» e «Ir aquí» (modo Ruta) y, en Explorar, «Explorar aquí».
-// extra añade otros botones, como { act: "card", label: "Ver ficha" }.
-function actions(onChoose, extra = []) {
+// extra añade otros botones, como { act: "card", label: "Ver ficha" }. Cada botón lleva su acción
+// en data-act.
+function placeActions(extra = []) {
   const buttons = [
     ...(state.mode === "explore" ? [{ act: "explore", label: "Explorar aquí" }] : []),
     { act: "from", label: "Salir de aquí" },
     { act: "to", label: "Ir aquí" },
     ...extra,
   ];
-  const div = document.createElement("div");
-  div.className = "popup-actions";
-  div.innerHTML = html`${buttons.map(({ act, label }) => html`<button type="button" data-act="${act}">${label}</button>`)}`;
+  return html`<div class="popup-actions">${buttons.map(({ act, label }) => html`<button type="button" data-act="${act}">${label}</button>`)}</div>`;
+}
+
+// Los botones de placeActions para un popup del mapa. Los popups quedan fuera de #results, así que
+// escuchan por su cuenta.
+function actions(onChoose, extra = []) {
+  const template = document.createElement("template");
+  template.innerHTML = placeActions(extra);
+  const div = template.content.firstElementChild;
   div.addEventListener("click", (event) => {
     const act = event.target.dataset.act;
     if (!act) return;
@@ -520,7 +527,7 @@ function card(title, source, body, id = null) {
 }
 
 function optionCard(mode, title, option, recommended) {
-  return html`<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-mode="${mode}">
+  return html`<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-action="option" data-mode="${mode}">
     <div class="mode">${title}</div>
     <div class="time">${minutes(option.duration)}</div>
     <div class="meta">${km(option.distance)}${option.estimated ? html` · ${badge("warn", "estimado")}` : ""}</div>
@@ -596,22 +603,13 @@ function nearbyCard(places, title) {
 // estaciones de la calle buscada (bm:locatedOnStreet) se marcan «en la calle».
 function stationItem(s) {
   const where = s.onStreet ? badge("callejero", "en la calle") : km(s.distance);
-  return html`<li><a href="#" data-station="${s.id}">${s.name}</a>
+  return html`<li><a href="#" data-action="station" data-station="${s.id}">${s.name}</a>
     <span>${s.usable ? "" : html`${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${where}</span></li>`;
 }
 
 function nearestStationsCard(stations, title = "Estaciones más cercanas") {
   return card(title, "bicimad", html`<ul class="places">${stations.map(stationItem)}</ul>`);
 }
-
-// Los enlaces de las listas de estaciones abren la ficha de esa estación. Se escucha en el panel
-// para que sigan funcionando cuando se vuelve a pintar solo una parte (filtros en Explorar).
-results.addEventListener("click", (event) => {
-  const link = event.target.closest("[data-station]");
-  if (!link) return;
-  event.preventDefault();
-  showStation(link.dataset.station);
-});
 
 function queryItem(q) {
   const meta = [`${q.rows ?? 0} filas`, `${q.ms} ms`];
@@ -633,11 +631,6 @@ function whyPanel(contributions, queries) {
   return html`<details class="why" ${state.whyOpen ? "open" : ""}><summary>¿Por qué ontología?</summary><div>${table}<h3>Consultas ejecutadas (${queries.length})</h3>${queries.map(queryItem)}</div></details>`;
 }
 
-function bindWhy() {
-  const why = $(".why", results);
-  if (why) why.addEventListener("toggle", () => { state.whyOpen = why.open; });
-}
-
 function renderPlan() {
   const plan = state.plan;
   const cards = plan.cards.map((station, i) => [
@@ -655,11 +648,6 @@ function renderPlan() {
     ${cards}
     ${plan.nearby.length ? nearbyCard(plan.nearby, "Cerca del destino") : ""}
     ${whyPanel(plan.contributions, plan.queries)}`;
-  results.querySelectorAll(".option-card").forEach((button) => button.addEventListener("click", () => {
-    state.shown = button.dataset.mode;
-    showPlan();
-  }));
-  bindWhy();
 }
 
 // Pinta la ruta guardada en el panel y en el mapa.
@@ -698,17 +686,23 @@ async function computeRoute() {
   }
 }
 
-// Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta.
+// Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta (ver goBack).
 function backButton() {
   if (state.mode === "explore" && state.explore) {
-    // Si la última búsqueda de Explorar falla mientras se ve la ficha, state.explore queda vacío.
-    const go = () => (state.explore ? showExplore() : exploreWelcome());
-    return { html: html`<button type="button" class="back">← Volver a la lista</button>`, go };
+    return html`<button type="button" class="back" data-action="back">← Volver a la lista</button>`;
   }
   if (state.mode === "route" && state.plan) {
-    return { html: html`<button type="button" class="back">← Volver a la ruta</button>`, go: showPlan };
+    return html`<button type="button" class="back" data-action="back">← Volver a la ruta</button>`;
   }
-  return null;
+  return "";
+}
+
+function goBack() {
+  claimResults(state.mode);
+  if (state.mode === "route") showPlan();
+  // Si la última búsqueda de Explorar falla mientras se ve la ficha, state.explore queda vacío.
+  else if (state.explore) showExplore();
+  else exploreWelcome();
 }
 
 async function showStation(id) {
@@ -718,21 +712,12 @@ async function showStation(id) {
     const data = await api(`/api/station/${encodeURIComponent(id)}`);
     if (!ownsPanel()) return;
     const s = data.station;
-    const back = backButton();
-    results.innerHTML = html`${back ? back.html : ""}
+    results.innerHTML = html`${backButton()}
       ${stationCard(s, "Estación")}
-      <div class="card" id="station-actions"></div>
+      <div class="card" id="station-actions" data-action="place" data-ref="station:${s.id}" data-label="${s.name}">${placeActions()}</div>
       ${s.nearestStations.length ? nearestStationsCard(s.nearestStations) : ""}
       ${data.nearby.length ? nearbyCard(data.nearby, "Lugares cercanos") : ""}
       ${whyPanel(null, data.queries)}`;
-    $("#station-actions").append(actions((act) => usePlace(act, { ref: `station:${s.id}`, label: s.name })));
-    if (back) {
-      $(".back", results).addEventListener("click", () => {
-        claimResults(state.mode);
-        back.go();
-      });
-    }
-    bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
   } catch (error) {
     if (ownsPanel()) showMessage("error", error.message);
@@ -740,7 +725,7 @@ async function showStation(id) {
 }
 
 function exampleButtons(examples) {
-  return html`<div class="popup-actions">${examples.map((e) => html`<button type="button" data-example="${e}">${e}</button>`)}</div>`;
+  return html`<div class="popup-actions">${examples.map((e) => html`<button type="button" data-action="example" data-example="${e}">${e}</button>`)}</div>`;
 }
 
 function welcome() {
@@ -758,9 +743,7 @@ function exploreWelcome() {
 }
 
 // Los ejemplos escriben en el campo del modo activo y muestran sus sugerencias.
-results.addEventListener("click", (event) => {
-  const example = event.target.dataset.example;
-  if (!example) return;
+function useExample(example) {
   let input = $("#center-input");
   if (state.mode === "route") {
     state.from = { ref: `pt:${SOL[0]},${SOL[1]}`, label: "Puerta del Sol", lat: SOL[0], lon: SOL[1] };
@@ -770,7 +753,40 @@ results.addEventListener("click", (event) => {
   input.value = example;
   input.focus();
   input.dispatchEvent(new Event("input"));
+}
+
+// ---------- eventos del panel ----------
+
+// Lo que se pinta en #results dice con data-action qué hace al pulsarlo, y con otros data-*, sobre
+// qué. Un solo listener atiende todo el panel: no hay que enlazar nada en cada pintado y sigue
+// funcionando cuando se vuelve a pintar solo una parte (la lista de Explorar al cambiar los filtros).
+const resultActions = {
+  station: (el) => showStation(el.dataset.station),
+  option: (el) => {
+    state.shown = el.dataset.mode;
+    showPlan();
+  },
+  back: () => goBack(),
+  example: (el) => useExample(el.dataset.example),
+  // Botones de placeActions en la ficha: el sitio va en el contenedor y la acción en cada botón.
+  place: (el, event) => {
+    const act = event.target.closest("[data-act]")?.dataset.act;
+    if (act) usePlace(act, { ref: el.dataset.ref, label: el.dataset.label });
+  },
+};
+
+results.addEventListener("click", (event) => {
+  const el = event.target.closest("[data-action]");
+  if (!el) return;
+  event.preventDefault();
+  resultActions[el.dataset.action](el, event);
 });
+
+// El panel «¿Por qué ontología?» se queda abierto o cerrado al volver a pintar. toggle no burbujea,
+// así que se escucha en la fase de captura.
+results.addEventListener("toggle", (event) => {
+  if (event.target.matches("details.why")) state.whyOpen = event.target.open;
+}, true);
 
 // ---------- Explorar ----------
 
@@ -813,10 +829,10 @@ $("#explore-form").addEventListener("change", (event) => {
 
 function centerCard(center, place) {
   const [kind, id] = place.ref.split(":");
-  const card = kind === "station" ? html`<p class="sub"><a href="#" data-station="${id}">Ver la ficha de la estación</a></p>` : "";
+  const link = kind === "station" ? html`<p class="sub"><a href="#" data-action="station" data-station="${id}">Ver la ficha de la estación</a></p>` : "";
   return html`<div class="card center-card"><p class="kicker">Lugar</p>
     <h2>${center.label} ${badge(center.source)} ${center.approximate ? badge("warn", "aproximado") : ""}</h2>
-    <p class="sub">${center.note}</p>${card}</div>`;
+    <p class="sub">${center.note}</p>${link}</div>`;
 }
 
 function stationsLabel(count) {
@@ -845,7 +861,6 @@ function exploreStationsCard(data) {
 function renderExplore() {
   const data = state.explore;
   results.innerHTML = html`${centerCard(data.center, data.place)}${exploreStationsCard(data)}${whyPanel(data.contributions, data.queries)}`;
-  bindWhy();
 }
 
 function showExplore() {
