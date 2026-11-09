@@ -3,11 +3,18 @@
 El grafo y la ontología son copias de la entrega del grupo, en `graph/` (origen en el README).
 Cada consulta vive en `queries/<nombre>.rq`. Los parámetros se escriben como `$nombre` y se
 sustituyen por el término RDF serializado (IRI o literal escapado) antes de ejecutar.
+
+Una línea `#include <fragmento>` se sustituye por el texto de `queries/<fragmento>.rq`, con la
+misma sangría. Los fragmentos empiezan por `_` y no son consultas por sí solos: `_station.rq` es
+el patrón común de estación (y la regla de estación utilizable) y necesita los prefijos `bm:`,
+`geo:` y `rdfs:` en la consulta que lo incluye.
 """
 
+import re
 from functools import cache
 from pathlib import Path
 from string import Template
+from textwrap import indent
 
 import pyoxigraph as ox
 
@@ -32,9 +39,18 @@ def _load_store() -> ox.Store:
 store = _load_store()
 
 
+_INCLUDE = re.compile(r"^([ \t]*)#include (\w+)[ \t]*$", re.MULTILINE)
+
+
+def _source(name: str) -> str:
+    """Texto de `queries/<name>.rq` con los `#include` ya sustituidos."""
+    text = (QUERIES / f"{name}.rq").read_text(encoding="utf-8")
+    return _INCLUDE.sub(lambda match: indent(_source(match[2]).rstrip("\n"), match[1]), text)
+
+
 @cache
 def _template(name: str) -> Template:
-    return Template((QUERIES / f"{name}.rq").read_text(encoding="utf-8"))
+    return Template(_source(name))
 
 
 def _term(value) -> str:
