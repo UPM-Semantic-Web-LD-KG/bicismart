@@ -160,7 +160,7 @@ body {
 
 .places { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
 .places li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--soft); }
-.places li span { color: var(--muted); white-space: nowrap; }
+.places li > span { color: var(--muted); white-space: nowrap; }
 
 a { color: var(--wikidata); }
 .sub { color: var(--muted); font-size: 0.8rem; }
@@ -194,6 +194,7 @@ details.why > div { padding: 0 14px 12px; }
 }
 .pin.from { background: var(--ink); }
 .pin.to { background: var(--accent); }
+.pin.here { width: 20px; height: 20px; border-width: 3px; }
 .popup-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .popup-actions button {
   border: 1px solid var(--line); background: var(--soft); border-radius: 6px; padding: 3px 8px; cursor: pointer; font: inherit; font-size: 0.8rem;

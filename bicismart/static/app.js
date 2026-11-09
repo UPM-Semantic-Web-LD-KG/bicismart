@@ -82,6 +82,10 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 const stationLayer = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
+// Explorar: círculos del radio y lugar buscado. Los círculos van en un panel por debajo de las
+// estaciones (overlayPane, 400) para no taparlas.
+map.createPane("explore-area").style.zIndex = 350;
+const exploreLayer = L.layerGroup().addTo(map);
 
 // Botones para usar un sitio: «Salir de aquí» e «Ir aquí» (modo Ruta) y, en Explorar, «Explorar aquí».
 function actions(onChoose, extra = "") {
@@ -139,16 +143,37 @@ function applyStationFilters() {
   $("#filter-count").textContent = `${visible} de ${stationMarkers.length} estaciones`;
 }
 
+// Estaciones dentro del radio de Explorar (id → estación), o null si no se está explorando.
+function exploreInside() {
+  if (state.mode !== "explore" || !state.explore) return null;
+  return new Map(state.explore.stations.map((s) => [s.id, s]));
+}
+
+// Estilo de un marcador de estación. En Explorar, las del radio se resaltan (con borde naranja,
+// del Callejero, si están en la calle buscada) y las demás se atenúan, sin ocultarse.
+function stationStyle(station, inside = null) {
+  const style = {
+    radius: 4.5, weight: 1, color: "#ffffff", opacity: 1,
+    fillColor: station.usable ? "#1a7f37" : "#9ca3af", fillOpacity: 0.95,
+  };
+  if (!inside) return style;
+  const hit = inside.get(station.id);
+  if (hit) return { ...style, radius: 7, weight: 2.5, color: hit.onStreet ? "#c2410c" : "#1c2530", fillOpacity: 1 };
+  return { ...style, radius: 4, opacity: 0.6, fillOpacity: 0.4 };
+}
+
+function styleStations() {
+  const inside = exploreInside();
+  for (const { station, marker } of stationMarkers) {
+    marker.setStyle(stationStyle(station, inside));
+    if (inside?.has(station.id)) marker.bringToFront();
+  }
+}
+
 async function loadStations() {
   const stations = await api("/api/stations");
   for (const s of stations) {
-    const marker = L.circleMarker([s.lat, s.lon], {
-      radius: 4.5,
-      weight: 1,
-      color: "#ffffff",
-      fillColor: s.usable ? "#1a7f37" : "#9ca3af",
-      fillOpacity: 0.95,
-    })
+    const marker = L.circleMarker([s.lat, s.lon], stationStyle(s))
       .bindPopup(() => {
         const div = document.createElement("div");
         div.innerHTML = `<strong>${esc(s.name)}</strong><br>${s.capacity} bases · ${s.usable ? "en servicio" : "fuera de servicio"}`;
@@ -161,6 +186,7 @@ async function loadStations() {
     stationMarkers.push({ station: s, marker });
   }
   applyStationFilters();
+  styleStations();
 }
 
 map.on("click", (event) => {
@@ -182,6 +208,38 @@ function pin(latlng, letter, role, label) {
     icon: L.divIcon({ className: "", html: `<div class="pin ${role}">${letter}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
     zIndexOffset: 1000,
   }).bindTooltip(esc(label)).addTo(routeLayer);
+}
+
+// Círculos del radio (uno por centro: varios si es una calle con estaciones), el lugar buscado
+// y las estaciones resaltadas. Encuadra los círculos.
+function drawExplore() {
+  exploreLayer.clearLayers();
+  const data = state.explore;
+  const bounds = L.latLngBounds([]);
+  for (const [lat, lon] of data.centers) {
+    L.circle([lat, lon], {
+      pane: "explore-area", radius: data.radius, interactive: false,
+      color: "#d0112b", weight: 2, opacity: 0.8, fillColor: "#d0112b", fillOpacity: 0.06,
+    }).addTo(exploreLayer);
+    bounds.extend(L.latLng(lat, lon).toBounds(data.radius * 2));
+  }
+  // Una calle con estaciones se ve por ellas (borde naranja): no tiene un punto propio.
+  if (!data.stations.some((s) => s.onStreet)) {
+    const { lat, lon, label, source } = data.center;
+    L.marker([lat, lon], {
+      icon: L.divIcon({ className: "", html: `<div class="pin here" style="background: var(--${esc(source)})"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] }),
+      zIndexOffset: 1000,
+      keyboard: false,
+    }).bindTooltip(esc(label)).addTo(exploreLayer);
+  }
+  styleStations();
+  map.fitBounds(bounds, { padding: [24, 24] });
+}
+
+// Deja el mapa como fuera de Explorar.
+function clearExplore() {
+  exploreLayer.clearLayers();
+  styleStations();
 }
 
 function drawPlan() {
@@ -232,9 +290,12 @@ function setMode(mode) {
   map.closePopup();
   if (mode === "explore") {
     routeLayer.clearLayers();
-    if (state.explore) renderExplore();
+    if (state.explore) showExplore();
     else exploreWelcome();
-  } else if (state.plan) {
+    return;
+  }
+  clearExplore();
+  if (state.plan) {
     renderPlan();
     drawPlan();
   } else {
@@ -619,11 +680,13 @@ async function exploreAround(place, loading = true) {
     const data = await api("/api/explore", { ref: place.ref, label: place.label, radius: state.radius });
     if (mine !== exploreSequence) return;
     state.explore = { ...data, place };
-    if (state.mode === "explore") renderExplore();
+    if (state.mode === "explore") showExplore();
   } catch (error) {
     if (mine !== exploreSequence) return;
     state.explore = null;
-    if (state.mode === "explore") results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (state.mode !== "explore") return;
+    clearExplore();
+    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
 }
 
@@ -658,6 +721,11 @@ function renderExplore() {
   results.innerHTML = centerCard(data.center) + exploreStationsCard(data) + whyPanel(data.contributions, data.queries);
   bindStationLinks();
   bindWhy();
+}
+
+function showExplore() {
+  renderExplore();
+  drawExplore();
 }
 
 async function checkStatus() {
