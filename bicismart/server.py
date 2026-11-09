@@ -2,6 +2,7 @@
 
 import threading
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -12,6 +13,7 @@ from . import enrich, geocode, routing, trace, wikidata
 from .geocode import Endpoint
 
 STATIC = Path(__file__).parent / "static"
+EXPLORE_RADII = (300, 500, 1000)  # metros
 
 
 @asynccontextmanager
@@ -148,6 +150,74 @@ def route(
         "cards": cards,
         "nearby": nearby,
         "contributions": _contributions(origin, destination, cards, nearby),
+        "queries": queries,
+    }
+
+
+def _explore_contributions(center: Endpoint) -> list[dict]:
+    """Qué aporta cada fuente a la exploración de un lugar frente al CSV de BiciMAD."""
+    rows = []
+    if center.csv:
+        rows.append({
+            "what": f"Centro: {center.label}",
+            "source": center.source,
+            "how": center.note,
+            "csv": center.csv,
+        })
+    rows.append({
+        "what": "Estaciones dentro del radio: posición, bases y estado",
+        "source": "bicimad",
+        "how": "bm:BikeStation, bm:hasPoint, bm:hasState y distancia en línea recta",
+        "csv": "Sí, si se conoce el centro",
+    })
+    return rows
+
+
+@app.get("/api/explore")
+def explore(ref: str, label: str | None = None, radius: str = "500"):
+    """Estaciones a 300, 500 o 1000 m de un lugar, de la más cercana a la más lejana (FR2).
+
+    `ref` es una referencia de `geocode` (calle, lugar, estación o punto). Si es una estación,
+    no cuenta en la lista: es el centro. Si es una calle con estaciones, el radio se mide desde
+    cada una de ellas (`centers`), porque una calle larga no tiene un punto medio útil.
+    """
+    queries = trace.start()
+    if not radius.isdigit() or int(radius) not in EXPLORE_RADII:
+        raise HTTPException(400, "El radio tiene que ser de 300, 500 o 1000 m.")
+    radius_m = int(radius)
+    try:
+        center = geocode.resolve(ref, label)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+    kind, _, value = ref.partition(":")
+    street_stations = center.stations if kind == "street" and center.stations else []
+    if street_stations:
+        # La nota de geocode habla de rutas; aquí explica desde dónde se mide el radio.
+        count = len(street_stations)
+        center = replace(center, note=(
+            f"La calle tiene {count} "
+            + ("estación BiciMAD utilizable" if count == 1 else "estaciones BiciMAD utilizables")
+            + " (bm:locatedOnStreet): las distancias se miden desde "
+            + ("ella." if count == 1 else "la más cercana de ellas.")
+        ))
+        centers = [(s["lat"], s["lon"]) for s in street_stations]
+    else:
+        centers = [(center.lat, center.lon)]
+
+    stations = enrich.stations_within(centers, radius_m, exclude=value if kind == "station" else None)
+    on_street = {s["id"] for s in street_stations}
+    for s in stations:
+        s["onStreet"] = s["id"] in on_street
+
+    return {
+        "center": _endpoint(center),
+        "centers": [list(point) for point in centers],
+        "radius": radius_m,
+        "stations": stations,
+        "contributions": _explore_contributions(center),
         "queries": queries,
     }
 
