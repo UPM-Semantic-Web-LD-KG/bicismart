@@ -1,8 +1,6 @@
 """Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
 
-from contextlib import contextmanager
-
-from . import geo, geocode, graph, trace, wikidata
+from . import geo, graph, trace, wikidata
 from .names import district_names, pretty
 
 STATES = {
@@ -72,38 +70,13 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
         + f"\n# Se usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
         cached=True,
     ) as entry:
-        found = sorted(
-            ((geo.distance_m(lat, lon, p["lat"], p["lon"]), p) for p in places),
-            key=lambda pair: pair[0],
-        )
         found = [
             {**p, "distance": round(d), "link": f"https://www.wikidata.org/wiki/{p['qid']}",
              "categories": [wikidata.CATEGORIES[c][0] for c in p["categories"]]}
-            for d, p in found if d <= radius_m
-        ][:limit]
+            for d, p in geo.by_distance(places, lat, lon, k=limit, max_m=radius_m)
+        ]
         entry["rows"] = len(found)
     return found
-
-
-@contextmanager
-def _stations(describe: str):
-    """Todas las estaciones del grafo y su entrada `stations` en el panel de consultas.
-
-    Si aún no estaban en memoria, `graph.query` ya registra la consulta al cargarlas. Si lo
-    estaban, se añade una entrada de caché que termina con `describe`: qué se hace con ellas.
-    Devuelve `(estaciones, entrada)`; quien llama rellena `entrada["rows"]`.
-    """
-    if geocode.all_stations.cache_info().currsize == 0:
-        yield geocode.all_stations(), {}
-        return
-    stations = geocode.all_stations()
-    with trace.record(
-        "local", "stations",
-        (graph.QUERIES / "stations.rq").read_text(encoding="utf-8")
-        + f"\n# Se usan las {len(stations)} estaciones en caché y {describe}",
-        cached=True,
-    ) as entry:
-        yield stations, entry
 
 
 def _station_row(station: dict, distance: float) -> dict:
@@ -124,17 +97,13 @@ def nearest_stations(
     Con `usable_only` solo cuentan las que se pueden usar: es lo que interesa como alternativa
     a una estación de la ruta.
     """
-    describe = (
-        f"se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
-        + f"\n# a la estación {station_id} en línea recta (haversine), sin contarla a ella."
+    stations = graph.query_cached("stations")
+    others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
+    found = [_station_row(s, d) for d, s in geo.by_distance(others, lat, lon, k=limit)]
+    trace.note(
+        f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
+        + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
     )
-    with _stations(describe) as (stations, entry):
-        others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
-        found = [
-            _station_row(s, geo.distance_m(lat, lon, s["lat"], s["lon"]))
-            for s in geo.nearest(others, lat, lon, limit)
-        ]
-        entry["rows"] = len(found)
     return found
 
 
@@ -148,28 +117,21 @@ def stations_within(
     desde todas ellas, no desde un punto medio. `exclude` es el id de una estación que no
     cuenta: la que hace de centro.
     """
+    stations = graph.query_cached("stations")
+    others = [s for s in stations if s["id"] != exclude]
+    found = [
+        {**_station_row(s, d), "lat": s["lat"], "lon": s["lon"]}
+        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
+    ]
     if len(points) == 1:
-        where = "de ({:.5f}, {:.5f})".format(*points[0])
+        where = "de ({:.5f}, {:.5f}) ".format(*points[0])
     else:
-        where = f"del más cercano de estos {len(points)} puntos:\n#   " + "\n#   ".join(
-            f"({lat:.5f}, {lon:.5f})" for lat, lon in points
-        ) + "\n#"
-    describe = (
-        f"se eligen las que están a {radius_m} m o menos\n# {where} en línea recta (haversine), "
+        where = f"del más cercano de estos {len(points)} puntos:\n" + "".join(
+            f"  ({lat:.5f}, {lon:.5f})\n" for lat, lon in points
+        )
+    trace.note(
+        f"Se eligen las que están a {radius_m} m o menos\n{where}en línea recta (haversine), "
         "de la más cercana a la más lejana"
         + (f", sin contar la estación {exclude}." if exclude else ".")
     )
-    with _stations(describe) as (stations, entry):
-        by_distance = sorted(
-            (
-                (min(geo.distance_m(lat, lon, s["lat"], s["lon"]) for lat, lon in points), s)
-                for s in stations if s["id"] != exclude
-            ),
-            key=lambda pair: pair[0],
-        )
-        found = [
-            {**_station_row(s, d), "lat": s["lat"], "lon": s["lon"]}
-            for d, s in by_distance if d <= radius_m
-        ]
-        entry["rows"] = len(found)
     return found

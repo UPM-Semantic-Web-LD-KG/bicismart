@@ -2,20 +2,8 @@ PREFIX bm:   <https://bicismart.madrid.data.es/ontology#>
 PREFIX geo:  <http://www.w3.org/2003/01/geo/wgs84_pos#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-# Todas las estaciones BiciMAD con su posición, su estado y si se pueden usar
-# (activadas, en servicio y con alguna base útil).
+# Todas las estaciones BiciMAD con su posición, su estado y si se pueden usar.
 SELECT ?station ?id ?name ?lat ?lon ?capacity ?unavailable ?state ?activated ?usable
 WHERE {
-  ?station a bm:BikeStation ;
-           bm:stationId ?id ;
-           rdfs:label ?name ;
-           bm:totalCapacity ?capacity ;
-           bm:hasPoint ?point ;
-           bm:hasState ?stationState .
-  ?point geo:lat ?lat ;
-         geo:long ?lon .
-  ?stationState bm:isActivated ?activated ;
-                bm:operationalState ?state ;
-                bm:unavailableBases ?unavailable .
-  BIND (?activated && ?state = "IN_SERVICE" && ?capacity - ?unavailable > 0 AS ?usable)
+  #include _station
 }

@@ -8,10 +8,9 @@ viajan entre la web y la API tienen la forma `street:<calle>` (nombre de su IRI,
 
 import re
 from dataclasses import dataclass
-from functools import cache
 
 from . import geo, graph, wikidata
-from .names import fold, pretty, district_names
+from .names import district_names, fold, pretty
 
 STREET_TYPES = {
     "C", "CL", "CALLE", "AV", "AVD", "AVDA", "AVENIDA", "P", "PS", "PASEO", "PL", "PZA", "PLAZA",
@@ -36,9 +35,9 @@ class Endpoint:
     approximate: bool = False
 
 
-@cache
 def all_stations() -> list[dict]:
-    return graph.query("stations")
+    """Todas las estaciones del grafo (consulta `stations`), ejecutada una sola vez por proceso."""
+    return graph.query_cached("stations")
 
 
 def parse_street(text: str) -> tuple[str, str | None]:
@@ -86,10 +85,10 @@ def _category_results(key: str, near: tuple[float, float] | None) -> list[dict]:
             "kind": "place",
             "ref": f"place:{p['qid']}",
             "label": p["label"],
-            "detail": f"{label} · a {_distance_label(geo.distance_m(lat, lon, p['lat'], p['lon']))} {where}",
+            "detail": f"{label} · a {_distance_label(meters)} {where}",
             "source": "wikidata",
         }
-        for p in geo.nearest(places, lat, lon, 5)
+        for meters, p in geo.by_distance(places, lat, lon, k=5)
     ]
 
 

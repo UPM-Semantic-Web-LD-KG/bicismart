@@ -28,9 +28,14 @@ def _point(item: dict | Endpoint) -> Point:
     return (item["lat"], item["lon"])
 
 
+def _estimated_m(a: Point, b: Point) -> float:
+    """Metros estimados: línea recta × DETOUR."""
+    return geo.distance_m(*a, *b) * DETOUR
+
+
 def estimate(profile: str, a: Point, b: Point) -> float:
     """Segundos estimados en línea recta × DETOUR."""
-    return geo.distance_m(*a, *b) * DETOUR / SPEED[profile]
+    return _estimated_m(a, b) / SPEED[profile]
 
 
 def route(profile: str, a: Point, b: Point) -> dict:
@@ -53,7 +58,7 @@ def route(profile: str, a: Point, b: Point) -> dict:
             }
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as error:
             entry["error"] = str(error) or type(error).__name__
-    meters = geo.distance_m(*a, *b) * DETOUR
+    meters = _estimated_m(a, b)
     return {
         "duration": meters / SPEED[profile],
         "distance": meters,

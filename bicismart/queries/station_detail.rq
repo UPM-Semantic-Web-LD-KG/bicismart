@@ -11,17 +11,7 @@ SELECT ?station ?id ?name ?lat ?lon ?capacity ?unavailable ?state ?activated ?us
        (GROUP_CONCAT(DISTINCT ?postalCode; separator=",") AS ?postalCodes)
 WHERE {
   VALUES ?id { $id }
-  ?station bm:stationId ?id ;
-           rdfs:label ?name ;
-           bm:totalCapacity ?capacity ;
-           bm:hasPoint ?point ;
-           bm:hasState ?stationState .
-  ?point geo:lat ?lat ;
-         geo:long ?lon .
-  ?stationState bm:isActivated ?activated ;
-                bm:operationalState ?state ;
-                bm:unavailableBases ?unavailable .
-  BIND (?activated && ?state = "IN_SERVICE" && ?capacity - ?unavailable > 0 AS ?usable)
+  #include _station
   OPTIONAL {
     ?station bm:locatedOnStreet ?street .
     ?street bm:streetName ?streetName .

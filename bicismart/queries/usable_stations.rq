@@ -5,16 +5,6 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 # Estaciones que se pueden usar: activadas, en servicio y con alguna base útil.
 SELECT ?station ?id ?name ?lat ?lon ?capacity ?unavailable
 WHERE {
-  ?station a bm:BikeStation ;
-           bm:stationId ?id ;
-           rdfs:label ?name ;
-           bm:totalCapacity ?capacity ;
-           bm:hasPoint ?point ;
-           bm:hasState ?stationState .
-  ?point geo:lat ?lat ;
-         geo:long ?lon .
-  ?stationState bm:isActivated true ;
-                bm:operationalState "IN_SERVICE" ;
-                bm:unavailableBases ?unavailable .
-  FILTER (?capacity - ?unavailable > 0)
+  #include _station
+  FILTER (?usable)
 }
