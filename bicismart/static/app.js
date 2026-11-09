@@ -73,6 +73,19 @@ function showStatus(text) {
   status.hidden = !text;
 }
 
+// La ruta, Explorar y la ficha de una estación piden datos y los pintan en el panel de resultados.
+// Para que una respuesta lenta no tape lo que el usuario ha pedido después, cada petición reclama
+// el panel al empezar y, al llegar la respuesta, solo la pinta si el panel sigue siendo suyo (como
+// `sequence` en el autocompletado). Cambiar de pestaña y «Volver» también lo reclaman. La ruta y
+// Explorar lo reclaman con su nombre ("route", "explore"): si se vuelve a ellas mientras su
+// petición está en camino, la respuesta se pinta al llegar. Cada ficha usa un objeto nuevo.
+let resultsOwner = null;
+
+function claimResults(owner = {}) {
+  resultsOwner = owner;
+  return () => resultsOwner === owner;
+}
+
 // ---------- mapa ----------
 
 const map = L.map("map", { preferCanvas: true }).setView(SOL, 14);
@@ -289,6 +302,7 @@ const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
 function setMode(mode) {
   if (state.mode === mode) return;
   state.mode = mode;
+  claimResults(mode);
   for (const tab of tabs) {
     const selected = tab.dataset.mode === mode;
     tab.setAttribute("aria-selected", selected);
@@ -595,7 +609,13 @@ function renderPlan() {
   bindWhy();
 }
 
+let routeSequence = 0;
+
 async function computeRoute() {
+  const mine = ++routeSequence;
+  const ownsPanel = claimResults("route");
+  // El origen pedido: mientras llega la respuesta, el usuario puede estar cambiando state.from.
+  const from = state.from;
   results.innerHTML = '<p class="loading">Calculando la ruta…</p>';
   try {
     const plan = await api("/api/route", {
@@ -604,13 +624,18 @@ async function computeRoute() {
       fromLabel: state.from.label,
       toLabel: state.to.label,
     });
+    if (mine !== routeSequence) return;
     state.plan = plan;
     state.shown = plan.recommended;
-    state.from.lat = plan.origin.lat;
-    state.from.lon = plan.origin.lon;
+    from.lat = plan.origin.lat;
+    from.lon = plan.origin.lon;
+    // Si entretanto se ha pedido otra cosa, la ruta se guarda para «Volver a la ruta» o la
+    // pestaña Ruta, pero no se pinta.
+    if (!ownsPanel()) return;
     renderPlan();
     drawPlan();
   } catch (error) {
+    if (mine !== routeSequence || !ownsPanel()) return;
     routeLayer.clearLayers();
     results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
@@ -619,7 +644,9 @@ async function computeRoute() {
 // Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta.
 function backButton() {
   if (state.mode === "explore" && state.explore) {
-    return { html: '<button type="button" class="back">← Volver a la lista</button>', go: showExplore };
+    // Si la última búsqueda de Explorar falla mientras se ve la ficha, state.explore queda vacío.
+    const go = () => (state.explore ? showExplore() : exploreWelcome());
+    return { html: '<button type="button" class="back">← Volver a la lista</button>', go };
   }
   if (state.mode === "route" && state.plan) {
     return { html: '<button type="button" class="back">← Volver a la ruta</button>', go: () => { renderPlan(); drawPlan(); } };
@@ -628,11 +655,11 @@ function backButton() {
 }
 
 async function showStation(id) {
-  const mode = state.mode;
+  const ownsPanel = claimResults();
   results.innerHTML = '<p class="loading">Cargando la estación…</p>';
   try {
     const data = await api(`/api/station/${encodeURIComponent(id)}`);
-    if (state.mode !== mode) return;
+    if (!ownsPanel()) return;
     const s = data.station;
     const back = backButton();
     let html = back ? back.html : "";
@@ -643,11 +670,16 @@ async function showStation(id) {
     html += whyPanel(null, data.queries);
     results.innerHTML = html;
     $("#station-actions").append(actions((act) => usePlace(act, { ref: `station:${s.id}`, label: s.name })));
-    if (back) $(".back", results).addEventListener("click", back.go);
+    if (back) {
+      $(".back", results).addEventListener("click", () => {
+        claimResults(state.mode);
+        back.go();
+      });
+    }
     bindWhy();
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
   } catch (error) {
-    if (state.mode === mode) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (ownsPanel()) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
 }
 
@@ -699,18 +731,20 @@ function setCenter(place) {
 // (loading = false) se deja la lista anterior hasta que llega la nueva.
 async function exploreAround(place, loading = true) {
   const mine = ++exploreSequence;
+  const ownsPanel = claimResults("explore");
   if (loading) results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
   try {
     const data = await api("/api/explore", { ref: place.ref, label: place.label, radius: state.radius });
     if (mine !== exploreSequence) return;
+    // Como en la ruta: si entretanto se ha abierto una ficha o cambiado de pestaña, se guarda
+    // para «Volver a la lista» o la pestaña Explorar, pero no se pinta.
     state.explore = { ...data, place };
-    if (state.mode === "explore") showExplore();
+    if (ownsPanel()) showExplore();
   } catch (error) {
     if (mine !== exploreSequence) return;
     state.explore = null;
-    if (state.mode !== "explore") return;
     clearExplore();
-    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (ownsPanel()) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
   }
 }
 
