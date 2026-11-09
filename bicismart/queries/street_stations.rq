@@ -1,0 +1,21 @@
+PREFIX bm:   <https://bicismart.madrid.data.es/ontology#>
+PREFIX geo:  <http://www.w3.org/2003/01/geo/wgs84_pos#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+# Estaciones utilizables situadas en una calle (bm:locatedOnStreet, enlace BiciMAD ↔ Callejero).
+SELECT ?station ?id ?name ?lat ?lon ?capacity ?unavailable
+WHERE {
+  VALUES ?street { $street }
+  ?station bm:locatedOnStreet ?street ;
+           bm:stationId ?id ;
+           rdfs:label ?name ;
+           bm:totalCapacity ?capacity ;
+           bm:hasPoint ?point ;
+           bm:hasState ?stationState .
+  ?point geo:lat ?lat ;
+         geo:long ?lon .
+  ?stationState bm:isActivated true ;
+                bm:operationalState "IN_SERVICE" ;
+                bm:unavailableBases ?unavailable .
+  FILTER (?capacity - ?unavailable > 0)
+}

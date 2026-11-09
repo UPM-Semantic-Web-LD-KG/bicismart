@@ -1,0 +1,15 @@
+PREFIX bm:  <https://bicismart.madrid.data.es/ontology#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+
+# Datos de una calle del Callejero y su enlace a Wikidata.
+SELECT ?street ?name ?wikidata
+       (GROUP_CONCAT(DISTINCT STR(?district); separator=",") AS ?districts)
+       (GROUP_CONCAT(DISTINCT ?postalCode; separator=",") AS ?postalCodes)
+WHERE {
+  VALUES ?street { $street }
+  ?street bm:streetName ?name .
+  OPTIONAL { ?street bm:districtCode ?district }
+  OPTIONAL { ?street bm:postalCode ?postalCode }
+  OPTIONAL { ?street owl:sameAs ?wikidata }
+}
+GROUP BY ?street ?name ?wikidata

@@ -1,0 +1,157 @@
+"""API y web de BiciSmart."""
+
+import threading
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import enrich, geocode, routing, trace, wikidata
+from .geocode import Endpoint
+
+STATIC = Path(__file__).parent / "static"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    threading.Thread(target=wikidata.prefetch, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="BiciSmart", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC / "index.html")
+
+
+@app.get("/api/status")
+def status():
+    return {**wikidata.status, "placeCount": len(wikidata.places())}
+
+
+@app.get("/api/stations")
+def stations():
+    return [
+        {key: s[key] for key in ("id", "name", "lat", "lon", "capacity", "usable")}
+        for s in geocode.all_stations()
+    ]
+
+
+@app.get("/api/search")
+def search(q: str, lat: float | None = None, lon: float | None = None):
+    queries = trace.start()
+    near = (lat, lon) if lat is not None and lon is not None else None
+    return {"results": geocode.search(q, near), "queries": queries}
+
+
+def _endpoint(endpoint: Endpoint) -> dict:
+    return {
+        "label": endpoint.label,
+        "lat": endpoint.lat,
+        "lon": endpoint.lon,
+        "source": endpoint.source,
+        "note": endpoint.note,
+        "approximate": endpoint.approximate,
+        "fixedStations": bool(endpoint.stations),
+    }
+
+
+def _contributions(origin: Endpoint, destination: Endpoint, cards: list[dict], nearby: list[dict]) -> list[dict]:
+    """Qué aporta cada fuente a esta ruta y qué se podría hacer solo con el CSV de BiciMAD."""
+    rows = [{
+        "what": "Estaciones utilizables, posición y bases",
+        "source": "bicimad",
+        "how": "bm:BikeStation, bm:hasPoint, bm:hasState",
+        "csv": "Sí",
+    }]
+    for role, endpoint in (("Origen", origin), ("Destino", destination)):
+        if endpoint.csv:
+            rows.append({
+                "what": f"{role}: {endpoint.label}",
+                "source": endpoint.source,
+                "how": endpoint.note,
+                "csv": endpoint.csv,
+            })
+    if any(b["source"] == "callejero" for card in cards for b in card["blocks"]):
+        rows.append({
+            "what": "Calle, distrito y código postal de las estaciones",
+            "source": "callejero",
+            "how": "bm:locatedOnStreet → bm:Street (bm:districtCode, bm:postalCode)",
+            "csv": "No: el CSV de BiciMAD no tiene distrito ni código postal.",
+        })
+    if any(b["source"] == "wikidata" for card in cards for b in card["blocks"]):
+        rows.append({
+            "what": "Historia de la calle: a quién homenajea, imagen",
+            "source": "wikidata",
+            "how": "bm:Street owl:sameAs → Wikidata (P138, P18)",
+            "csv": "No",
+        })
+    if nearby:
+        rows.append({
+            "what": "Lugares de interés junto al destino",
+            "source": "wikidata",
+            "how": "Wikidata (P31/P279*, P625) y distancia a la estación",
+            "csv": "No",
+        })
+    rows.append({
+        "what": "Tiempos y trazado por las calles",
+        "source": "osrm",
+        "how": "OSRM sobre OpenStreetMap (servicio externo)",
+        "csv": "Igual: no depende del grafo",
+    })
+    return rows
+
+
+@app.get("/api/route")
+def route(
+    origin_ref: str = Query(alias="from"),
+    destination_ref: str = Query(alias="to"),
+    origin_label: str | None = Query(None, alias="fromLabel"),
+    destination_label: str | None = Query(None, alias="toLabel"),
+):
+    queries = trace.start()
+    try:
+        origin = geocode.resolve(origin_ref, origin_label)
+        destination = geocode.resolve(destination_ref, destination_label)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+    plan = routing.plan(origin, destination)
+    cards = []
+    if plan["bike"]:
+        cards = [
+            enrich.station_card(plan["bike"]["from_station"]["id"]),
+            enrich.station_card(plan["bike"]["to_station"]["id"]),
+        ]
+    final_leg = plan["bike"]["legs"][-1] if plan["recommended"] == "bike" else plan["walk"]
+    nearby = [
+        place for place in enrich.nearby_places(*final_leg["geometry"][-1])
+        if f"place:{place['qid']}" != destination_ref
+    ]
+
+    return {
+        **plan,
+        "origin": _endpoint(origin),
+        "destination": _endpoint(destination),
+        "cards": cards,
+        "nearby": nearby,
+        "contributions": _contributions(origin, destination, cards, nearby),
+        "queries": queries,
+    }
+
+
+@app.get("/api/station/{station_id}")
+def station(station_id: str):
+    queries = trace.start()
+    try:
+        card = enrich.station_card(station_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    return {"station": card, "nearby": enrich.nearby_places(card["lat"], card["lon"]), "queries": queries}
