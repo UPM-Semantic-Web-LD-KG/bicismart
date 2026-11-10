@@ -1,4 +1,4 @@
-"""Ficha de una estación, estaciones y lugares cercanos, combinando BiciMAD, Callejero y Wikidata."""
+"""Ficha de una estación, estaciones y lugares cercanos, con BiciMAD, Callejero y Wikidata."""
 
 from . import geo, graph, trace, wikidata
 from .errors import NotFound
@@ -24,50 +24,58 @@ def station_summary(row: dict) -> dict:
 def station_card(station_id: str, nearest: int = 5, usable_only: bool = False) -> dict:
     """Ficha de una estación: sus datos de BiciMAD, el Callejero y Wikidata (`blocks`) y sus
     `nearest` estaciones más cercanas (`nearestStations`, ver `nearest_stations`).
+
+    Cada bloque lleva su fuente (`source`): BiciMAD siempre; el Callejero si la estación está
+    enlazada a una calle (bm:locatedOnStreet), y Wikidata si esa calle tiene owl:sameAs y hay
+    datos suyos. Con `usable_only` solo cuentan como cercanas las que se pueden usar, que es lo
+    que interesa como alternativa en una ruta. Lanza NotFound si la estación no existe.
     """
     rows = graph.query("station_detail", id=station_id)
     if not rows:
         raise NotFound(f"No existe la estación {station_id}.")
-    s = rows[0]
+    station = rows[0]
 
+    state = STATES.get(station["state"], station["state"])
+    if not station["activated"]:
+        state += " (desactivada)"
     blocks = [{
         "source": "bicimad",
         "title": "Estación",
         "items": [
-            ["Estado", STATES.get(s["state"], s["state"]) + ("" if s["activated"] else " (desactivada)")],
-            ["Bases", str(s["capacity"])],
-            ["Bases inutilizables", str(s["unavailable"])],
-            ["Coordenadas", f"{s['lat']:.5f}, {s['lon']:.5f}"],
+            ["Estado", state],
+            ["Bases", str(station["capacity"])],
+            ["Bases inutilizables", str(station["unavailable"])],
+            ["Coordenadas", f"{station['lat']:.5f}, {station['lon']:.5f}"],
         ],
     }]
 
-    if s["street"]:
-        districts = district_names(s["districts"])
-        items = [["Calle", pretty(s["streetName"])]]
+    if station["street"]:
+        districts = district_names(station["districts"])
+        items = [["Calle", pretty(station["streetName"])]]
         if districts:
             items.append(["Distritos" if "," in districts else "Distrito", districts])
-        if s["postalCodes"]:
-            items.append(["Código postal", ", ".join(sorted(s["postalCodes"].split(",")))])
+        if station["postalCodes"]:
+            items.append(["Código postal", ", ".join(sorted(station["postalCodes"].split(",")))])
         blocks.append({"source": "callejero", "title": "Callejero", "items": items})
 
-    if s["wikidata"] and (facts := wikidata.street_facts(wikidata.qid(s["wikidata"]))):
+    if station["wikidata"] and (facts := wikidata.street_facts(wikidata.qid(station["wikidata"]))):
         blocks.append({
             "source": "wikidata",
-            "title": facts.get("label") or pretty(s["streetName"]),
+            "title": facts.get("label") or pretty(station["streetName"]),
             "description": facts.get("description"),
             "image": facts.get("image"),
-            "link": f"https://www.wikidata.org/wiki/{facts['qid']}",
+            "link": wikidata.page_url(facts["qid"]),
             "namedAfter": [
-                {**person, "link": f"https://www.wikidata.org/wiki/{person['qid']}"}
+                {**person, "link": wikidata.page_url(person["qid"])}
                 for person in facts.get("namedAfter", [])
             ],
         })
 
     return {
-        **station_summary(s),
+        **station_summary(station),
         "blocks": blocks,
         "nearestStations": nearest_stations(
-            s["id"], s["lat"], s["lon"], limit=nearest, usable_only=usable_only
+            station["id"], station["lat"], station["lon"], limit=nearest, usable_only=usable_only
         ),
     }
 
@@ -76,15 +84,13 @@ def nearby_places(lat: float, lon: float, radius_m: float = 500, limit: int = 6)
     """Lugares de Wikidata a menos de `radius_m` metros, del más cercano al más lejano."""
     places = wikidata.places()
     with trace.record(
-        "wikidata", "wikidata_places",
-        wikidata.places_query("museo")
-        + f"\n\n# … y una consulta igual para cada categoría: {', '.join(wikidata.CATEGORIES)}."
-        + f"\n# Se usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
-        cached=True,
+        "wikidata", "wikidata_places", wikidata.places_query("museo"), cached=True,
+        note=f"… y una consulta igual para cada categoría: {', '.join(wikidata.CATEGORIES)}."
+        + f"\nSe usan los resultados en caché y se filtran a {radius_m:.0f} m del punto.",
     ) as entry:
         found = [
-            {**p, "distance": round(d), "link": f"https://www.wikidata.org/wiki/{p['qid']}",
-             "categories": [wikidata.CATEGORIES[c][0] for c in p["categories"]]}
+            {**p, "distance": round(d), "link": wikidata.page_url(p["qid"]),
+             "categories": [wikidata.CATEGORIES[c].label for c in p["categories"]]}
             for d, p in geo.by_distance(places, lat, lon, k=limit, max_m=radius_m)
         ]
         entry["rows"] = len(found)
@@ -99,17 +105,15 @@ def nearest_stations(
     Con `usable_only` solo cuentan las que se pueden usar: es lo que interesa como alternativa
     a una estación de la ruta.
     """
-    stations = graph.query_cached("stations")
+    stations = graph.query_cached("stations", note=(
+        f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
+        + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
+    ))
     others = [s for s in stations if s["id"] != station_id and (s["usable"] or not usable_only)]
-    found = [
+    return [
         {**station_summary(s), "distance": round(d)}
         for d, s in geo.by_distance(others, lat, lon, k=limit)
     ]
-    trace.note(
-        f"Se eligen las {limit} más cercanas" + (" utilizables" if usable_only else "")
-        + f"\na la estación {station_id} en línea recta (haversine), sin contarla a ella."
-    )
-    return found
 
 
 def stations_within(
@@ -122,21 +126,19 @@ def stations_within(
     desde todas ellas, no desde un punto medio. `exclude` es el id de una estación que no
     cuenta: la que hace de centro.
     """
-    stations = graph.query_cached("stations")
-    others = [s for s in stations if s["id"] != exclude]
-    found = [
-        {**station_summary(s), "distance": round(d)}
-        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
-    ]
     if len(points) == 1:
         where = "de ({:.5f}, {:.5f}) ".format(*points[0])
     else:
         where = f"del más cercano de estos {len(points)} puntos:\n" + "".join(
             f"  ({lat:.5f}, {lon:.5f})\n" for lat, lon in points
         )
-    trace.note(
+    stations = graph.query_cached("stations", note=(
         f"Se eligen las que están a {radius_m} m o menos\n{where}en línea recta (haversine), "
         "de la más cercana a la más lejana"
         + (f", sin contar la estación {exclude}." if exclude else ".")
-    )
-    return found
+    ))
+    others = [s for s in stations if s["id"] != exclude]
+    return [
+        {**station_summary(s), "distance": round(d)}
+        for d, s in geo.by_distance_to_any(others, points, max_m=radius_m)
+    ]

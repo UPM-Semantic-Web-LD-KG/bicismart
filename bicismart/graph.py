@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parent.parent
 GRAPH_DIR = ROOT / "graph"
 QUERIES = Path(__file__).parent / "queries"
 
-BM = "https://bicismart.madrid.data.es/ontology#"
 STREET = "https://bicismart.madrid.data.es/resource/Street/"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 
@@ -54,12 +53,18 @@ def _template(name: str) -> Template:
 
 
 def _term(value) -> str:
+    """Parámetro de una consulta -> término SPARQL serializado: un IRI o un literal tal cual, y
+    cualquier otro valor convertido en literal (un texto, escapado).
+    """
     if isinstance(value, ox.NamedNode | ox.Literal):
         return str(value)
     return str(ox.Literal(value))
 
 
 def _python(term):
+    """Término de un resultado -> valor Python: int, float o bool según su tipo XSD y, si no,
+    su texto (también los IRI). Una variable sin valor da None.
+    """
     if term is None:
         return None
     if isinstance(term, ox.Literal):
@@ -77,24 +82,30 @@ def _text(name: str, params: dict) -> str:
     return _template(name).substitute({key: _term(value) for key, value in params.items()})
 
 
-def _run(name: str, text: str) -> list[dict]:
-    with trace.record("local", name, text) as entry:
+def _run(name: str, text: str, note: str | None = None) -> list[dict]:
+    with trace.record("local", name, text, note=note) as entry:
         result = store.query(text)
         names = [variable.value for variable in result.variables]
-        rows = [dict(zip(names, (_python(solution[n]) for n in names))) for solution in result]
+        rows = [
+            dict(zip(names, (_python(solution[n]) for n in names), strict=True))
+            for solution in result
+        ]
         entry["rows"] = len(rows)
     return rows
 
 
-def query(name: str, **params) -> list[dict]:
-    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python."""
-    return _run(name, _text(name, params))
+def query(name: str, *, note: str | None = None, **params) -> list[dict]:
+    """Ejecuta `queries/<name>.rq` y devuelve las filas como diccionarios de valores Python.
+
+    `note` es un comentario para el panel sobre qué se hace con las filas (ver `trace.record`).
+    """
+    return _run(name, _text(name, params), note)
 
 
 _results: dict[str, list[dict]] = {}
 
 
-def query_cached(name: str, **params) -> list[dict]:
+def query_cached(name: str, *, note: str | None = None, **params) -> list[dict]:
     """Como `query`, pero solo ejecuta la consulta la primera vez y después reutiliza las filas.
 
     El grafo no cambia mientras corre la app, así que el resultado vale para siempre. Cada llamada
@@ -103,10 +114,10 @@ def query_cached(name: str, **params) -> list[dict]:
     """
     text = _text(name, params)
     if text not in _results:
-        _results[text] = _run(name, text)
+        _results[text] = _run(name, text, note)
         return _results[text]
     rows = _results[text]
-    with trace.record("local", name, text, cached=True) as entry:
+    with trace.record("local", name, text, cached=True, note=note) as entry:
         entry["rows"] = len(rows)
     return rows
 

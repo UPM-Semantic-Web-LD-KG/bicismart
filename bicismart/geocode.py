@@ -19,7 +19,9 @@ STREET_TYPES = {
     "COSTANILLA", "PASAJE", "CALLEJON", "BULEVAR", "VIA", "PLAZUELA",
 }
 PARTICLES = {"DE", "DEL", "LA", "LAS", "LOS", "EL"}
-CATEGORY_ALIASES = {"estacion de metro": "metro", "estacion de tren": "estacion", "tren": "estacion"}
+CATEGORY_ALIASES = {
+    "estacion de metro": "metro", "estacion de tren": "estacion", "tren": "estacion",
+}
 
 
 @dataclass
@@ -74,11 +76,13 @@ def _stations_label(count: int) -> str:
 
 
 def _distance_label(meters: float) -> str:
-    return f"{meters / 1000:.1f} km".replace(".", ",") if meters >= 1000 else f"{round(meters / 10) * 10:.0f} m"
+    if meters >= 1000:
+        return f"{meters / 1000:.1f} km".replace(".", ",")
+    return f"{round(meters / 10) * 10:.0f} m"
 
 
 def _category_results(key: str, near: tuple[float, float] | None) -> list[dict]:
-    label = wikidata.CATEGORIES[key][0]
+    label = wikidata.CATEGORIES[key].label
     lat, lon = near or wikidata.CENTER
     places = [p for p in wikidata.places() if key in p["categories"]]
     wikidata.record_cached_places(key, len(places))
@@ -138,7 +142,7 @@ def _place_results(text: str) -> list[dict]:
             "ref": f"place:{p['qid']}",
             "label": p["label"],
             "detail": " · ".join(
-                [", ".join(wikidata.CATEGORIES[c][0] for c in p["categories"])]
+                [", ".join(wikidata.CATEGORIES[c].label for c in p["categories"])]
                 + ([p["description"]] if p.get("description") else [])
             ),
             "source": "wikidata",
@@ -164,6 +168,14 @@ def _station_results(text: str) -> list[dict]:
 
 
 def search(text: str, near: tuple[float, float] | None = None) -> list[dict]:
+    """Sugerencias para lo que escribe el usuario, en este orden: lugares del tipo pedido (si el
+    texto es un tipo, como «un museo»), calles del Callejero, lugares de Wikidata por nombre y
+    estaciones BiciMAD.
+
+    Cada sugerencia es {kind, ref, label, detail, source} y su `ref` se pasa después a `resolve`.
+    `near` es el origen ya elegido, (lat, lon): los lugares de un tipo se ordenan por distancia a
+    él o, si no hay, a la Puerta del Sol. Con menos de 2 caracteres no se busca nada.
+    """
     text = text.strip()
     if len(text) < 2:
         return []
@@ -192,8 +204,8 @@ def _street(key: str) -> Endpoint:
         lat, lon = geo.centroid(stations)
         return Endpoint(
             name, lat, lon, "callejero",
-            f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): el trayecto empieza o termina "
-            "en una de ellas, sin tramo a pie.",
+            f"La calle tiene {_stations_label(len(stations))} BiciMAD (bm:locatedOnStreet): "
+            "el trayecto empieza o termina en una de ellas, sin tramo a pie.",
             csv={"verdict": "partial", "text": (
                 "Parcial: se podría buscar el texto en la dirección de las estaciones, pero sin "
                 "identificar la calle (homónimos, abreviaturas) ni situar calles sin estación."
@@ -205,8 +217,11 @@ def _street(key: str) -> Endpoint:
     if facts and "lat" in facts:
         return Endpoint(
             name, facts["lat"], facts["lon"], "wikidata",
-            "La calle no tiene estaciones; se usan sus coordenadas en Wikidata (owl:sameAs → P625).",
-            csv={"verdict": "no", "text": "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."},
+            "La calle no tiene estaciones; se usan sus coordenadas en Wikidata "
+            "(owl:sameAs → P625).",
+            csv={"verdict": "no", "text": (
+                "No: el CSV de BiciMAD no sabe dónde está una calle sin estaciones."
+            )},
         )
 
     nearby = graph.query("neighborhood_stations", street=node)
@@ -224,7 +239,12 @@ def _street(key: str) -> Endpoint:
 
 
 def resolve(ref: str, label: str | None = None) -> Endpoint:
-    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida."""
+    """Sitúa una referencia de la web. Lanza NotFound si no existe y BadRequest si no es válida.
+
+    `ref` tiene una de las formas del principio del módulo (`street:`, `place:`, `station:` o
+    `pt:`). `label` solo se usa para un punto del mapa, que no tiene nombre propio; los demás
+    toman el suyo del grafo o de Wikidata.
+    """
     kind, _, value = ref.partition(":")
     if kind == "pt":
         try:

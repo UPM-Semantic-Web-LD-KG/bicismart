@@ -9,34 +9,44 @@ import logging
 import re
 import threading
 from string import Template
+from typing import NamedTuple
 
 import httpx
 
-from . import graph, trace
+from . import USER_AGENT, graph, trace
 
 log = logging.getLogger(__name__)
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "BiciSmart/0.1 (UPM Semantic Web coursework)"
 ENTITY = "http://www.wikidata.org/entity/"
+PAGE = "https://www.wikidata.org/wiki/"
 DATA = graph.ROOT / "data"
 STREETS_CACHE = DATA / "wikidata-streets.json"
 PLACES_CACHE = DATA / "wikidata-places.json"
 
-# Centro y radio de la búsqueda de lugares: Puerta del Sol, cubre todas las estaciones.
-CENTER = (40.4168, -3.7038)
+# Centro y radio de la búsqueda de lugares: Puerta del Sol, cubre todas las estaciones. Es el
+# mismo punto que SOL en app.js, así que «a … de Sol» mide desde el Sol del mapa.
+CENTER = (40.416775, -3.70379)
 RADIUS_KM = 12
 
-# clave de búsqueda -> (etiqueta, clase de Wikidata)
+
+class Category(NamedTuple):
+    """Tipo de lugar de interés que se puede buscar ("un museo")."""
+
+    label: str  # nombre en la web
+    wikidata_class: str  # QID de la clase: vale ella y sus subclases (P31/P279*)
+
+
+# clave de búsqueda -> categoría
 CATEGORIES = {
-    "museo": ("Museo", "Q33506"),
-    "parque": ("Parque", "Q22698"),
-    "jardin": ("Jardín", "Q1107656"),
-    "plaza": ("Plaza", "Q174782"),
-    "monumento": ("Monumento", "Q4989906"),
-    "iglesia": ("Iglesia", "Q16970"),
-    "metro": ("Estación de metro", "Q928830"),
-    "estacion": ("Estación de tren", "Q55488"),
+    "museo": Category("Museo", "Q33506"),
+    "parque": Category("Parque", "Q22698"),
+    "jardin": Category("Jardín", "Q1107656"),
+    "plaza": Category("Plaza", "Q174782"),
+    "monumento": Category("Monumento", "Q4989906"),
+    "iglesia": Category("Iglesia", "Q16970"),
+    "metro": Category("Estación de metro", "Q928830"),
+    "estacion": Category("Estación de tren", "Q55488"),
 }
 
 PREFIXES = """PREFIX wd:       <http://www.wikidata.org/entity/>
@@ -130,7 +140,7 @@ def _run(name: str, text: str) -> list[dict]:
     return rows
 
 
-def _point(wkt: str | None) -> tuple[float, float] | None:
+def _wkt_point(wkt: str | None) -> tuple[float, float] | None:
     """'Point(lon lat)' -> (lat, lon)."""
     match = re.match(r"Point\(([-\d.eE]+) ([-\d.eE]+)\)", wkt or "")
     return (float(match[2]), float(match[1])) if match else None
@@ -141,10 +151,17 @@ def _thumb(url: str | None) -> str | None:
 
 
 def qid(iri: str) -> str:
+    """IRI de una entidad de Wikidata -> 'Q160112'."""
     return iri.removeprefix(ENTITY)
 
 
+def page_url(entity_qid: str) -> str:
+    """'Q160112' -> URL de la página de la entidad en wikidata.org, para enlazarla en la web."""
+    return PAGE + entity_qid
+
+
 def street_query(qids: list[str]) -> str:
+    """Texto de la consulta de datos de las calles `qids`."""
     return STREETS_QUERY.substitute(items=" ".join(f"wd:{q}" for q in qids))
 
 
@@ -154,7 +171,7 @@ def _fetch_streets(qids: list[str]) -> None:
         fact = facts[qid(row["item"])]
         fact.setdefault("label", row.get("itemLabel"))
         fact.setdefault("description", row.get("itemDescription"))
-        if (point := _point(row.get("coord"))) and "lat" not in fact:
+        if (point := _wkt_point(row.get("coord"))) and "lat" not in fact:
             fact["lat"], fact["lon"] = point
         if row.get("image"):
             fact.setdefault("image", _thumb(row["image"]))
@@ -186,15 +203,18 @@ def street_facts(street_qid: str) -> dict | None:
             return None
         with _lock:
             return _streets.get(street_qid)
-    with trace.record("wikidata", "wikidata_streets", street_query([street_qid]), cached=True) as entry:
+    text = street_query([street_qid])
+    with trace.record("wikidata", "wikidata_streets", text, cached=True) as entry:
         entry["rows"] = 1
     return cached
 
 
 def places_query(key: str) -> str:
-    label, cls = CATEGORIES[key]
+    """Texto de la consulta de lugares de la categoría `key` alrededor de CENTER."""
+    category = CATEGORIES[key]
     return PLACES_QUERY.substitute(
-        label=label.lower(), cls=cls, lat=CENTER[0], lon=CENTER[1], radius=RADIUS_KM
+        label=category.label.lower(), cls=category.wikidata_class,
+        lat=CENTER[0], lon=CENTER[1], radius=RADIUS_KM,
     )
 
 
@@ -202,7 +222,7 @@ def _fetch_places() -> list[dict]:
     places: dict[str, dict] = {}
     for key in CATEGORIES:
         for row in _run(f"wikidata_places_{key}", places_query(key)):
-            point = _point(row.get("coord"))
+            point = _wkt_point(row.get("coord"))
             label = row.get("itemLabel")
             if not point or not label or re.fullmatch(r"Q\d+", label):
                 continue
@@ -221,17 +241,20 @@ def _fetch_places() -> list[dict]:
 
 
 def places() -> list[dict]:
+    """Lugares de interés cargados (vacío hasta que termina `prefetch`)."""
     with _lock:
         return _places
 
 
 def place(place_qid: str) -> dict | None:
+    """Lugar de interés cargado con ese QID, o None."""
     return next((p for p in places() if p["qid"] == place_qid), None)
 
 
 def record_cached_places(key: str, rows: int) -> None:
     """Deja constancia en el panel de que se han usado los lugares cacheados de una categoría."""
-    with trace.record("wikidata", f"wikidata_places_{key}", places_query(key), cached=True) as entry:
+    text = places_query(key)
+    with trace.record("wikidata", f"wikidata_places_{key}", text, cached=True) as entry:
         entry["rows"] = rows
 
 

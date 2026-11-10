@@ -17,6 +17,7 @@ EXPLORE_RADII = (300, 500, 1000)  # metros
 
 
 def _endpoint(endpoint: Endpoint) -> dict:
+    """Un origen, destino o centro ya situado, tal como lo recibe la web."""
     return {
         "label": endpoint.label,
         "lat": endpoint.lat,
@@ -28,7 +29,9 @@ def _endpoint(endpoint: Endpoint) -> dict:
     }
 
 
-def _contributions(origin: Endpoint, destination: Endpoint, cards: list[dict], nearby: list[dict]) -> list[dict]:
+def _contributions(
+    origin: Endpoint, destination: Endpoint, cards: list[dict], nearby: list[dict]
+) -> list[dict]:
     """Qué aporta cada fuente a esta ruta y qué se podría hacer solo con el CSV de BiciMAD."""
     rows = [{
         "what": "Estaciones utilizables, posición y bases",
@@ -49,7 +52,10 @@ def _contributions(origin: Endpoint, destination: Endpoint, cards: list[dict], n
             "what": "Calle, distrito y código postal de las estaciones",
             "source": "callejero",
             "how": "bm:locatedOnStreet → bm:Street (bm:districtCode, bm:postalCode)",
-            "csv": {"verdict": "no", "text": "No: el CSV de BiciMAD no tiene distrito ni código postal."},
+            "csv": {
+                "verdict": "no",
+                "text": "No: el CSV de BiciMAD no tiene distrito ni código postal.",
+            },
         })
     if any(b["source"] == "wikidata" for card in cards for b in card["blocks"]):
         rows.append({
@@ -156,7 +162,8 @@ def explore(ref: str, label: str | None = None, radius: str = "500") -> dict:
     else:
         centers = [(center.lat, center.lon)]
 
-    stations = enrich.stations_within(centers, radius_m, exclude=value if kind == "station" else None)
+    exclude = value if kind == "station" else None
+    stations = enrich.stations_within(centers, radius_m, exclude=exclude)
     on_street = {s["id"] for s in street_stations}
     for s in stations:
         s["onStreet"] = s["id"] in on_street

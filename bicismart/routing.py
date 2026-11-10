@@ -7,11 +7,10 @@ tiempos reales de los tramos elegidos. Si OSRM no responde, se muestran las esti
 
 import httpx
 
-from . import enrich, geo, graph, trace
+from . import USER_AGENT, enrich, geo, graph, trace
 from .geocode import Endpoint
 
 OSRM = "https://routing.openstreetmap.de/routed-{profile}/route/v1/driving/{coords}?overview=full&geometries=geojson"
-USER_AGENT = "BiciSmart/0.1 (UPM Semantic Web coursework)"
 SPEED = {"foot": 5 / 3.6, "bike": 15 / 3.6}  # m/s
 DETOUR = 1.3
 DOCK_S = 60  # sacar o dejar la bici en la base
@@ -27,7 +26,8 @@ _cache: dict[str, dict] = {}
 Point = tuple[float, float]
 
 
-def _point(item: dict | Endpoint) -> Point:
+def _coords(item: dict | Endpoint) -> Point:
+    """(lat, lon) de una estación (fila del grafo) o de un origen o destino."""
     if isinstance(item, Endpoint):
         return (item.lat, item.lon)
     return (item["lat"], item["lon"])
@@ -73,6 +73,10 @@ def route(profile: str, a: Point, b: Point) -> dict:
 
 
 def _candidates(endpoint: Endpoint, other: Endpoint, pool: list[dict]) -> list[dict]:
+    """Estaciones que se prueban en un extremo. Si tiene estaciones propias (una calle con
+    estaciones o una estación elegida), las suyas más cercanas al otro extremo; si no, las de
+    `pool` más cercanas a él.
+    """
     if endpoint.stations:
         return geo.nearest(endpoint.stations, other.lat, other.lon, CANDIDATES)
     return geo.nearest(pool, endpoint.lat, endpoint.lon, CANDIDATES)
@@ -89,17 +93,20 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
     ends = _candidates(destination, origin, pool)
 
     def cost(start: dict, end: dict) -> float:
-        walk_in = 0 if origin.stations else estimate("foot", _point(origin), _point(start))
-        walk_out = 0 if destination.stations else estimate("foot", _point(end), _point(destination))
-        return walk_in + DOCK_S + estimate("bike", _point(start), _point(end)) + DOCK_S + walk_out
+        walk_in = 0 if origin.stations else estimate("foot", _coords(origin), _coords(start))
+        walk_out = (
+            0 if destination.stations else estimate("foot", _coords(end), _coords(destination))
+        )
+        return walk_in + DOCK_S + estimate("bike", _coords(start), _coords(end)) + DOCK_S + walk_out
 
     pairs = [(cost(s, e), s, e) for s in starts for e in ends if s["id"] != e["id"]]
 
     # Ir andando: desde el origen (o una estación de su calle) hasta el destino (o su calle).
-    departures = [_point(s) for s in starts] if origin.stations else [_point(origin)]
-    arrivals = [_point(e) for e in ends] if destination.stations else [_point(destination)]
+    departures = [_coords(s) for s in starts] if origin.stations else [_coords(origin)]
+    arrivals = [_coords(e) for e in ends] if destination.stations else [_coords(destination)]
     walk_from, walk_to = min(
-        ((a, b) for a in departures for b in arrivals), key=lambda pair: geo.distance_m(*pair[0], *pair[1])
+        ((a, b) for a in departures for b in arrivals),
+        key=lambda pair: geo.distance_m(*pair[0], *pair[1]),
     )
     walk = _leg("walk", origin.label, destination.label, route("foot", walk_from, walk_to))
 
@@ -108,10 +115,13 @@ def plan(origin: Endpoint, destination: Endpoint) -> dict:
         _, start, end = min(pairs, key=lambda pair: pair[0])
         legs = []
         if not origin.stations:
-            legs.append(_leg("walk", origin.label, start["name"], route("foot", _point(origin), _point(start))))
-        legs.append(_leg("bike", start["name"], end["name"], route("bike", _point(start), _point(end))))
+            path = route("foot", _coords(origin), _coords(start))
+            legs.append(_leg("walk", origin.label, start["name"], path))
+        path = route("bike", _coords(start), _coords(end))
+        legs.append(_leg("bike", start["name"], end["name"], path))
         if not destination.stations:
-            legs.append(_leg("walk", end["name"], destination.label, route("foot", _point(end), _point(destination))))
+            path = route("foot", _coords(end), _coords(destination))
+            legs.append(_leg("walk", end["name"], destination.label, path))
         bike = {
             "duration": sum(leg["duration"] for leg in legs) + 2 * DOCK_S,
             "distance": sum(leg["distance"] for leg in legs),

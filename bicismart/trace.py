@@ -1,6 +1,7 @@
 """Registro de las consultas hechas durante una petición, para el panel «¿por qué ontología?»."""
 
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -15,13 +16,21 @@ def start() -> list[dict]:
 
 
 @contextmanager
-def record(source: str, name: str, text: str, cached: bool = False):
+def record(
+    source: str, name: str, text: str, cached: bool = False, note: str | None = None
+) -> Iterator[dict]:
     """Mide una consulta y la añade al registro de la petición (si hay uno abierto).
 
     `source` es "local" (grafo RDF del grupo), "wikidata" u "osrm". Quien llama rellena
-    `entry["rows"]` con el número de resultados.
+    `entry["rows"]` con el número de resultados. `note` explica qué se hace con las filas: se
+    añade al final del texto como comentario (`# …`), tanto si la consulta se ejecuta como si
+    su resultado está en caché.
     """
-    entry = {"source": source, "name": name, "text": text, "rows": None, "ms": 0.0, "cached": cached}
+    if note:
+        text = text.rstrip() + "\n\n" + "\n".join(f"# {line}" for line in note.splitlines())
+    entry = {
+        "source": source, "name": name, "text": text, "rows": None, "ms": 0.0, "cached": cached,
+    }
     began = time.perf_counter()
     try:
         yield entry
@@ -30,15 +39,3 @@ def record(source: str, name: str, text: str, cached: bool = False):
         entries = _entries.get()
         if entries is not None:
             entries.append(entry)
-
-
-def note(comment: str) -> None:
-    """Comenta en la última consulta registrada qué se hace con sus filas.
-
-    Se llama justo después de la consulta, así que el comentario sale igual tanto si se ha
-    ejecutado como si el resultado estaba en caché (`graph.query_cached`).
-    """
-    entries = _entries.get()
-    if entries:
-        lines = "\n".join(f"# {line}" for line in comment.splitlines())
-        entries[-1]["text"] = entries[-1]["text"].rstrip() + "\n\n" + lines
