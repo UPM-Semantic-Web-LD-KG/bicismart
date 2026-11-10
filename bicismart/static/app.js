@@ -12,7 +12,6 @@ const GROUPS = { street: "Calles · Callejero", place: "Lugares · Wikidata", st
 const SOL = [40.416775, -3.70379];
 const EXAMPLES = ["Bravo Murillo 120", "Museo del Prado", "un parque", "Agustín de Foxá"];
 const EXPLORE_EXAMPLES = ["Museo del Prado", "Alcalá", "un parque", "Metro Sol"];
-const RADII = { 300: "300 m", 500: "500 m", 1000: "1 km" };
 
 // mode: "route" (origen y destino) o "explore" (estaciones cerca de un lugar, FR2).
 // center es el lugar elegido en el campo de Explorar; explore, la última respuesta de
@@ -31,8 +30,26 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+// HTML ya construido por html`…`: es lo único que una plantilla inserta sin escapar.
+class SafeHtml {
+  constructor(text) { this.text = text; }
+  toString() { return this.text; }
+}
+
+// Plantilla que escapa por defecto: html`<b>${nombre}</b>` escapa nombre. Para insertar HTML hay
+// que construirlo con otra plantilla html`…` (por ejemplo, badge()). Las listas se insertan
+// seguidas y null o undefined no insertan nada.
+function html(strings, ...values) {
+  const insert = (value) => {
+    if (value instanceof SafeHtml) return value.text;
+    if (Array.isArray(value)) return value.map(insert).join("");
+    return esc(value);
+  };
+  return new SafeHtml(strings.reduce((out, text, i) => out + insert(values[i - 1]) + text));
+}
+
 function badge(source, text) {
-  return `<span class="badge ${esc(source)}">${esc(text ?? SOURCES[source] ?? source)}</span>`;
+  return html`<span class="badge ${source}">${text ?? SOURCES[source] ?? source}</span>`;
 }
 
 function minutes(seconds) {
@@ -41,19 +58,15 @@ function minutes(seconds) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-function km(meters) {
+// Única función de formato de distancias del frontend: «1,2 km» o, por debajo del kilómetro, en
+// metros redondeados a la decena. Es la misma regla que geocode._distance_label en Python, que la
+// usa en los textos que monta el servidor (las sugerencias de «un parque»).
+function distanceLabel(meters) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(meters / 10) * 10} m`;
 }
 
 function https(url) {
   return url ? url.replace(/^http:\/\//, "https://") : url;
-}
-
-function distance(lat1, lon1, lat2, lon2) {
-  const rad = Math.PI / 180;
-  const a = Math.sin(((lat2 - lat1) * rad) / 2) ** 2
-    + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lon2 - lon1) * rad) / 2) ** 2;
-  return 2 * 6371000 * Math.asin(Math.sqrt(a));
 }
 
 async function api(path, params = {}) {
@@ -117,11 +130,24 @@ map.createPane("explore-area").style.zIndex = 350;
 const exploreLayer = L.layerGroup().addTo(map);
 
 // Botones para usar un sitio: «Salir de aquí» e «Ir aquí» (modo Ruta) y, en Explorar, «Explorar aquí».
-function actions(onChoose, extra = "") {
-  const div = document.createElement("div");
-  div.className = "popup-actions";
-  const explore = state.mode === "explore" ? '<button type="button" data-act="explore">Explorar aquí</button>' : "";
-  div.innerHTML = `${explore}<button type="button" data-act="from">Salir de aquí</button><button type="button" data-act="to">Ir aquí</button>${extra}`;
+// extra añade otros botones, como { act: "card", label: "Ver ficha" }. Cada botón lleva su acción
+// en data-act.
+function placeActions(extra = []) {
+  const buttons = [
+    ...(state.mode === "explore" ? [{ act: "explore", label: "Explorar aquí" }] : []),
+    { act: "from", label: "Salir de aquí" },
+    { act: "to", label: "Ir aquí" },
+    ...extra,
+  ];
+  return html`<div class="popup-actions">${buttons.map(({ act, label }) => html`<button type="button" data-act="${act}">${label}</button>`)}</div>`;
+}
+
+// Los botones de placeActions para un popup del mapa. Los popups quedan fuera de #results, así que
+// escuchan por su cuenta.
+function actions(onChoose, extra = []) {
+  const template = document.createElement("template");
+  template.innerHTML = placeActions(extra);
+  const div = template.content.firstElementChild;
   div.addEventListener("click", (event) => {
     const act = event.target.dataset.act;
     if (!act) return;
@@ -138,13 +164,13 @@ const MIN_CAPACITY_OPTIONS = [10, 20, 25, 30];
 const stationFilter = L.control({ position: "topright" });
 stationFilter.onAdd = () => {
   const form = L.DomUtil.create("form", "station-filter");
-  form.innerHTML = `<fieldset>
+  form.innerHTML = html`<fieldset>
     <legend>Estaciones ${badge("bicimad")}</legend>
     <label><input type="checkbox" id="filter-usable"> Solo en servicio</label>
     <label>Mínimo de bases
       <select id="filter-capacity">
         <option value="0">Cualquiera</option>
-        ${MIN_CAPACITY_OPTIONS.map((n) => `<option value="${n}">${n} o más</option>`).join("")}
+        ${MIN_CAPACITY_OPTIONS.map((n) => html`<option value="${n}">${n} o más</option>`)}
       </select>
     </label>
     <p class="count" id="filter-count" aria-live="polite">Cargando estaciones…</p>
@@ -222,11 +248,11 @@ async function loadStations() {
     const marker = L.circleMarker([s.lat, s.lon], stationStyle(s))
       .bindPopup(() => {
         const div = document.createElement("div");
-        div.innerHTML = `<strong>${esc(s.name)}</strong><br>${s.capacity} bases · ${s.usable ? "en servicio" : "fuera de servicio"}`;
+        div.innerHTML = html`<strong>${s.name}</strong><br>${s.capacity} bases · ${s.usable ? "en servicio" : "fuera de servicio"}`;
         div.append(actions((act) => {
           if (act === "card") showStation(s.id);
           else usePlace(act, { ref: `station:${s.id}`, label: s.name });
-        }, '<button type="button" data-act="card">Ver ficha</button>'));
+        }, [{ act: "card", label: "Ver ficha" }]));
         return div;
       });
     marker.on("click", () => { if (state.mode === "explore") showStation(s.id); });
@@ -252,7 +278,7 @@ map.on("click", (event) => {
 
 function pin(latlng, letter, role, label) {
   L.marker(latlng, {
-    icon: L.divIcon({ className: "", html: `<div class="pin ${role}">${letter}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
+    icon: L.divIcon({ className: "", html: String(html`<div class="pin ${role}">${letter}</div>`), iconSize: [26, 26], iconAnchor: [13, 13] }),
     zIndexOffset: 1000,
   }).bindTooltip(esc(label)).addTo(routeLayer);
 }
@@ -274,7 +300,7 @@ function drawExplore() {
   if (!data.stations.some((s) => s.onStreet)) {
     const { lat, lon, label, source } = data.center;
     L.marker([lat, lon], {
-      icon: L.divIcon({ className: "", html: `<div class="pin here" style="background: var(--${esc(source)})"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] }),
+      icon: L.divIcon({ className: "", html: String(html`<div class="pin here" style="background: var(--${source})"></div>`), iconSize: [20, 20], iconAnchor: [10, 10] }),
       zIndexOffset: 1000,
       keyboard: false,
     }).bindTooltip(esc(label)).addTo(exploreLayer);
@@ -343,12 +369,8 @@ function setMode(mode) {
     return;
   }
   clearExplore();
-  if (state.plan) {
-    renderPlan();
-    drawPlan();
-  } else {
-    welcome();
-  }
+  if (state.plan) showPlan();
+  else welcome();
 }
 
 tabs.forEach((tab, i) => {
@@ -398,18 +420,18 @@ function setupField(role, onChoose = (item) => setEndpoint(role, { ref: item.ref
       return;
     }
     const seen = new Set();
-    let html = "";
+    const rows = [];
     let last = null;
     items.forEach((item, i) => {
       if (item.kind !== last) {
-        html += `<li class="group">${seen.has(item.kind) ? "Más " : ""}${GROUPS[item.kind]}</li>`;
+        rows.push(html`<li class="group">${seen.has(item.kind) ? "Más " : ""}${GROUPS[item.kind]}</li>`);
         seen.add(item.kind);
         last = item.kind;
       }
-      html += `<li class="option" role="option" data-i="${i}" aria-selected="${i === active}">
-        <strong>${esc(item.label)}</strong><span>${esc(item.detail)}</span></li>`;
+      rows.push(html`<li class="option" role="option" data-i="${i}" aria-selected="${i === active}">
+        <strong>${item.label}</strong><span>${item.detail}</span></li>`);
     });
-    list.innerHTML = html;
+    list.innerHTML = html`${rows}`;
     list.hidden = false;
   };
 
@@ -425,7 +447,7 @@ function setupField(role, onChoose = (item) => setEndpoint(role, { ref: item.ref
       active = -1;
       render();
     } catch (error) {
-      list.innerHTML = `<li class="empty error">${esc(error.message)}</li>`;
+      list.innerHTML = html`<li class="empty error">${error.message}</li>`;
       list.hidden = false;
     }
   };
@@ -469,7 +491,7 @@ $("#locate").addEventListener("click", () => {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude: lat, longitude: lon } = position.coords;
-      if (distance(lat, lon, ...SOL) > 20000) {
+      if (map.distance([lat, lon], SOL) > 20000) {
         return showStatus("Tu ubicación está fuera de Madrid: haz clic en el mapa para elegir el origen.");
       }
       showStatus("");
@@ -489,146 +511,144 @@ $("#swap").addEventListener("click", () => {
 
 // ---------- resultados ----------
 
+// Mensaje en el panel de resultados: "loading" mientras llega una respuesta, o "error".
+function showMessage(kind, text) {
+  results.innerHTML = html`<p class="${kind}">${text}</p>`;
+}
+
+// Tarjeta del panel con su título y, si se indica, la etiqueta de la fuente de sus datos.
+function card(title, source, body, id = null) {
+  return html`<div class="card"${id ? html` id="${id}"` : ""}><h2>${title}${source ? html` ${badge(source)}` : ""}</h2>${body}</div>`;
+}
+
 function optionCard(mode, title, option, recommended) {
-  return `<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-mode="${mode}">
+  return html`<button type="button" class="option-card ${state.shown === mode ? "active" : ""}" data-action="option" data-mode="${mode}">
     <div class="mode">${title}</div>
     <div class="time">${minutes(option.duration)}</div>
-    <div class="meta">${km(option.distance)}${option.estimated ? ` · ${badge("warn", "estimado")}` : ""}</div>
-    ${recommended ? '<span class="best">Más rápido</span>' : ""}
+    <div class="meta">${distanceLabel(option.distance)}${option.estimated ? html` · ${badge("warn", "estimado")}` : ""}</div>
+    ${recommended ? html`<span class="best">Más rápido</span>` : ""}
   </button>`;
 }
 
 function endpointLine(role, endpoint) {
-  return `<div class="endpoint"><b>${role}</b><div>
-    <strong>${esc(endpoint.label)}</strong> ${badge(endpoint.source)}
+  return html`<div class="endpoint"><b>${role}</b><div>
+    <strong>${endpoint.label}</strong> ${badge(endpoint.source)}
     ${endpoint.approximate ? badge("warn", "aproximado") : ""}
-    <p>${esc(endpoint.note)}</p></div></div>`;
+    <p>${endpoint.note}</p></div></div>`;
+}
+
+// Distancia de un tramo, marcada si es una estimación en línea recta (sin OSRM).
+function legDistance(leg) {
+  return `${distanceLabel(leg.distance)}${leg.estimated ? " · estimado" : ""}`;
+}
+
+// Paso «Camina…» de un tramo a pie, hasta leg.to.
+function walkStep(leg) {
+  return html`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
+    <span class="sub">${legDistance(leg)}</span></li>`;
+}
+
+// Pasos de un tramo en bici: coger la bici, pedalear y dejarla. dock es el tiempo de cada maniobra.
+function bikeSteps(leg, dock) {
+  return html`<li class="dock">Coge una bici en <strong>${leg.from}</strong><span class="sub">${dock} para desanclarla</span></li>
+    <li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${leg.to}</strong>
+    <span class="sub">${legDistance(leg)}</span></li>
+    <li class="dock">Deja la bici en <strong>${leg.to}</strong><span class="sub">${dock} para anclarla</span></li>`;
 }
 
 function stepsCard(bike) {
   // bike.dock es el tiempo de sacar la bici y de dejarla: la mitad para cada paso.
   const dock = minutes(bike.dock / 2);
-  const steps = [];
-  for (const leg of bike.legs) {
-    const estimated = leg.estimated ? " · estimado" : "";
-    if (leg.mode === "walk") {
-      steps.push(`<li class="walk">Camina ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
-        <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-    } else {
-      steps.push(`<li class="dock">Coge una bici en <strong>${esc(leg.from)}</strong><span class="sub">${dock} para desanclarla</span></li>`);
-      steps.push(`<li class="bike">Pedalea ${minutes(leg.duration)} hasta <strong>${esc(leg.to)}</strong>
-        <span class="sub">${km(leg.distance)}${estimated}</span></li>`);
-      steps.push(`<li class="dock">Deja la bici en <strong>${esc(leg.to)}</strong><span class="sub">${dock} para anclarla</span></li>`);
-    }
-  }
-  return `<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">${steps.join("")}</ol></div>`;
+  const steps = bike.legs.map((leg) => (leg.mode === "walk" ? walkStep(leg) : bikeSteps(leg, dock)));
+  return card("Itinerario", "osrm", html`<ol class="steps">${steps}</ol>`);
 }
 
 function walkCard(plan) {
   const faster = plan.recommended === "walk" && plan.bike
-    ? '<p class="sub">Para este trayecto es más rápido ir andando que coger y dejar una bici.</p>'
+    ? html`<p class="sub">Para este trayecto es más rápido ir andando que coger y dejar una bici.</p>`
     : "";
-  return `<div class="card"><h2>Itinerario ${badge("osrm")}</h2><ol class="steps">
-    <li class="walk">Camina ${minutes(plan.walk.duration)} hasta <strong>${esc(plan.destination.label)}</strong>
-    <span class="sub">${km(plan.walk.distance)}${plan.walk.estimated ? " · estimado" : ""}</span></li></ol>${faster}</div>`;
+  return card("Itinerario", "osrm", html`<ol class="steps">${walkStep(plan.walk)}</ol>${faster}`);
 }
 
-function stationCard(card, title) {
-  let html = `<div class="card"><h2>${esc(title)}: ${esc(card.name)}</h2>`;
-  for (const block of card.blocks) {
-    html += `<div class="block ${esc(block.source)}"><div class="head"><span>${esc(block.title)}</span>${badge(block.source)}</div>`;
-    if (block.items) {
-      html += `<dl>${block.items.map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>`;
-    }
-    if (block.description) html += `<p>${esc(block.description)}</p>`;
-    if (block.image) html += `<img src="${esc(https(block.image))}" alt="${esc(block.title)}" loading="lazy">`;
-    for (const person of block.namedAfter ?? []) {
-      html += `<div class="person">${person.image ? `<img src="${esc(https(person.image))}" alt="" loading="lazy">` : ""}
-        <div>Homenajea a <a href="${esc(person.link)}" target="_blank" rel="noopener">${esc(person.label)}</a>
-        ${person.description ? `<br><span class="sub">${esc(person.description)}</span>` : ""}</div></div>`;
-    }
-    if (block.link) html += `<p><a href="${esc(block.link)}" target="_blank" rel="noopener">Ver en Wikidata ↗</a></p>`;
-    html += "</div>";
-  }
-  return `${html}</div>`;
+// Un bloque de la ficha de una estación, con el color y la etiqueta de su fuente.
+function stationBlock(block) {
+  const people = (block.namedAfter ?? []).map((person) => html`<div class="person">${person.image ? html`<img src="${https(person.image)}" alt="" loading="lazy">` : ""}
+        <div>Homenajea a <a href="${person.link}" target="_blank" rel="noopener">${person.label}</a>
+        ${person.description ? html`<br><span class="sub">${person.description}</span>` : ""}</div></div>`);
+  return html`<div class="block ${block.source}"><div class="head"><span>${block.title}</span>${badge(block.source)}</div>${[
+    block.items ? html`<dl>${block.items.map(([key, value]) => html`<dt>${key}</dt><dd>${value}</dd>`)}</dl>` : "",
+    block.description ? html`<p>${block.description}</p>` : "",
+    block.image ? html`<img src="${https(block.image)}" alt="${block.title}" loading="lazy">` : "",
+    people,
+    block.link ? html`<p><a href="${block.link}" target="_blank" rel="noopener">Ver en Wikidata ↗</a></p>` : "",
+  ]}</div>`;
+}
+
+function stationCard(station, title) {
+  return card(`${title}: ${station.name}`, null, station.blocks.map(stationBlock));
 }
 
 function nearbyCard(places, title) {
-  const items = places.map((p) => `<li><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.label)}</a>
-    <span>${esc(p.categories.join(", "))} · ${km(p.distance)}</span></li>`);
-  return `<div class="card"><h2>${esc(title)} ${badge("wikidata")}</h2><ul class="places">${items.join("")}</ul></div>`;
+  const items = places.map((p) => html`<li><a href="${p.link}" target="_blank" rel="noopener">${p.label}</a>
+    <span>${p.categories.join(", ")} · ${distanceLabel(p.distance)}</span></li>`);
+  return card(title, "wikidata", html`<ul class="places">${items}</ul>`);
 }
 
 // Una estación en una lista: enlace a su ficha, estado, bases y distancia. En Explorar, las
 // estaciones de la calle buscada (bm:locatedOnStreet) se marcan «en la calle».
 function stationItem(s) {
-  const where = s.onStreet ? badge("callejero", "en la calle") : km(s.distance);
-  return `<li><a href="#" data-station="${esc(s.id)}">${esc(s.name)}</a>
-    <span>${s.usable ? "" : `${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${where}</span></li>`;
+  const where = s.onStreet ? badge("callejero", "en la calle") : distanceLabel(s.distance);
+  return html`<li><a href="#" data-action="station" data-station="${s.id}">${s.name}</a>
+    <span>${s.usable ? "" : html`${badge("muted", "fuera de servicio")} · `}${s.capacity} bases · ${where}</span></li>`;
 }
 
 function nearestStationsCard(stations, title = "Estaciones más cercanas") {
-  return `<div class="card"><h2>${esc(title)} ${badge("bicimad")}</h2><ul class="places">${stations.map(stationItem).join("")}</ul></div>`;
+  return card(title, "bicimad", html`<ul class="places">${stations.map(stationItem)}</ul>`);
 }
 
-// Los enlaces de las listas de estaciones abren la ficha de esa estación. Se escucha en el panel
-// para que sigan funcionando cuando se vuelve a pintar solo una parte (filtros en Explorar).
-results.addEventListener("click", (event) => {
-  const link = event.target.closest("[data-station]");
-  if (!link) return;
-  event.preventDefault();
-  showStation(link.dataset.station);
-});
+function queryItem(q) {
+  const meta = [`${q.rows ?? 0} filas`, `${q.ms} ms`];
+  if (q.cached) meta.push("caché");
+  if (q.error) meta.push("error → estimación");
+  return html`<details class="query"><summary>${badge(q.source)}<code>${q.name}</code>
+      <span class="meta">${meta.join(" · ")}</span></summary>
+      <pre>${q.text}${q.error ? `\n\n# ${q.error}` : ""}</pre></details>`;
+}
 
 function whyPanel(contributions, queries) {
-  let html = `<details class="why" ${state.whyOpen ? "open" : ""}><summary>¿Por qué ontología?</summary><div>`;
-  if (contributions) {
-    html += `<p class="sub">Qué aporta cada fuente a esta respuesta y qué se podría hacer solo con el CSV de BiciMAD.</p>
+  const table = contributions
+    ? html`<p class="sub">Qué aporta cada fuente a esta respuesta y qué se podría hacer solo con el CSV de BiciMAD.</p>
       <table><thead><tr><th>Dato</th><th>Fuente</th><th>Solo con el CSV</th></tr></thead><tbody>
-      ${contributions.map((c) => `<tr><td>${esc(c.what)}<br><span class="sub">${esc(c.how)}</span></td>
-        <td>${badge(c.source)}</td><td class="${esc(c.csv.verdict ?? "")}">${esc(c.csv.text)}</td></tr>`).join("")}
-      </tbody></table>`;
-  }
-  html += `<h3>Consultas ejecutadas (${queries.length})</h3>`;
-  for (const q of queries) {
-    const meta = [`${q.rows ?? 0} filas`, `${q.ms} ms`];
-    if (q.cached) meta.push("caché");
-    if (q.error) meta.push("error → estimación");
-    html += `<details class="query"><summary>${badge(q.source)}<code>${esc(q.name)}</code>
-      <span class="meta">${meta.join(" · ")}</span></summary>
-      <pre>${esc(q.text)}${q.error ? `\n\n# ${esc(q.error)}` : ""}</pre></details>`;
-  }
-  return `${html}</div></details>`;
-}
-
-function bindWhy() {
-  const why = $(".why", results);
-  if (why) why.addEventListener("toggle", () => { state.whyOpen = why.open; });
+      ${contributions.map((c) => html`<tr><td>${c.what}<br><span class="sub">${c.how}</span></td>
+        <td>${badge(c.source)}</td><td class="${c.csv.verdict}">${c.csv.text}</td></tr>`)}
+      </tbody></table>`
+    : "";
+  return html`<details class="why" ${state.whyOpen ? "open" : ""}><summary>¿Por qué ontología?</summary><div>${table}<h3>Consultas ejecutadas (${queries.length})</h3>${queries.map(queryItem)}</div></details>`;
 }
 
 function renderPlan() {
   const plan = state.plan;
-  let html = '<div class="options">';
-  if (plan.bike) html += optionCard("bike", "En BiciMAD", plan.bike, plan.recommended === "bike");
-  html += optionCard("walk", "Andando", plan.walk, plan.recommended === "walk");
-  html += "</div>";
-  html += `<div class="card">${endpointLine("Desde", plan.origin)}${endpointLine("Hasta", plan.destination)}</div>`;
-  html += state.shown === "bike" && plan.bike ? stepsCard(plan.bike) : walkCard(plan);
-  plan.cards.forEach((card, i) => {
-    html += stationCard(card, i ? "Llegada" : "Salida");
-    if (card.nearestStations?.length) {
-      html += nearestStationsCard(card.nearestStations, i ? "Alternativas a la llegada" : "Alternativas a la salida");
-    }
-  });
-  if (plan.nearby.length) html += nearbyCard(plan.nearby, "Cerca del destino");
-  html += whyPanel(plan.contributions, plan.queries);
-  results.innerHTML = html;
-  results.querySelectorAll(".option-card").forEach((button) => button.addEventListener("click", () => {
-    state.shown = button.dataset.mode;
-    renderPlan();
-    drawPlan();
-  }));
-  bindWhy();
+  const cards = plan.cards.map((station, i) => [
+    stationCard(station, i ? "Llegada" : "Salida"),
+    station.nearestStations?.length
+      ? nearestStationsCard(station.nearestStations, i ? "Alternativas a la llegada" : "Alternativas a la salida")
+      : "",
+  ]);
+  results.innerHTML = html`<div class="options">
+      ${plan.bike ? optionCard("bike", "En BiciMAD", plan.bike, plan.recommended === "bike") : ""}
+      ${optionCard("walk", "Andando", plan.walk, plan.recommended === "walk")}
+    </div>
+    <div class="card">${endpointLine("Desde", plan.origin)}${endpointLine("Hasta", plan.destination)}</div>
+    ${state.shown === "bike" && plan.bike ? stepsCard(plan.bike) : walkCard(plan)}
+    ${cards}
+    ${plan.nearby.length ? nearbyCard(plan.nearby, "Cerca del destino") : ""}
+    ${whyPanel(plan.contributions, plan.queries)}`;
+}
+
+// Pinta la ruta guardada en el panel y en el mapa.
+function showPlan() {
+  renderPlan();
+  drawPlan();
 }
 
 let routeSequence = 0;
@@ -638,7 +658,7 @@ async function computeRoute() {
   const ownsPanel = claimResults("route");
   // El origen pedido: mientras llega la respuesta, el usuario puede estar cambiando state.from.
   const from = state.from;
-  results.innerHTML = '<p class="loading">Calculando la ruta…</p>';
+  showMessage("loading", "Calculando la ruta…");
   try {
     const plan = await api("/api/route", {
       from: state.from.ref,
@@ -653,80 +673,72 @@ async function computeRoute() {
     from.lon = plan.origin.lon;
     // Si entretanto se ha pedido otra cosa, la ruta se guarda para «Volver a la ruta» o la
     // pestaña Ruta, pero no se pinta.
-    if (!ownsPanel()) return;
-    renderPlan();
-    drawPlan();
+    if (ownsPanel()) showPlan();
   } catch (error) {
     if (mine !== routeSequence || !ownsPanel()) return;
     routeLayer.clearLayers();
-    results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    showMessage("error", error.message);
   }
 }
 
-// Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta.
+// Botón para volver de una ficha a lo que había: la lista de Explorar o la ruta (ver goBack).
 function backButton() {
   if (state.mode === "explore" && state.explore) {
-    // Si la última búsqueda de Explorar falla mientras se ve la ficha, state.explore queda vacío.
-    const go = () => (state.explore ? showExplore() : exploreWelcome());
-    return { html: '<button type="button" class="back">← Volver a la lista</button>', go };
+    return html`<button type="button" class="back" data-action="back">← Volver a la lista</button>`;
   }
   if (state.mode === "route" && state.plan) {
-    return { html: '<button type="button" class="back">← Volver a la ruta</button>', go: () => { renderPlan(); drawPlan(); } };
+    return html`<button type="button" class="back" data-action="back">← Volver a la ruta</button>`;
   }
-  return null;
+  return "";
+}
+
+function goBack() {
+  claimResults(state.mode);
+  if (state.mode === "route") showPlan();
+  // Si la última búsqueda de Explorar falla mientras se ve la ficha, state.explore queda vacío.
+  else if (state.explore) showExplore();
+  else exploreWelcome();
 }
 
 async function showStation(id) {
   const ownsPanel = claimResults();
-  results.innerHTML = '<p class="loading">Cargando la estación…</p>';
+  showMessage("loading", "Cargando la estación…");
   try {
     const data = await api(`/api/station/${encodeURIComponent(id)}`);
     if (!ownsPanel()) return;
     const s = data.station;
-    const back = backButton();
-    let html = back ? back.html : "";
-    html += stationCard(s, "Estación");
-    html += '<div class="card" id="station-actions"></div>';
-    if (s.nearestStations.length) html += nearestStationsCard(s.nearestStations);
-    if (data.nearby.length) html += nearbyCard(data.nearby, "Lugares cercanos");
-    html += whyPanel(null, data.queries);
-    results.innerHTML = html;
-    $("#station-actions").append(actions((act) => usePlace(act, { ref: `station:${s.id}`, label: s.name })));
-    if (back) {
-      $(".back", results).addEventListener("click", () => {
-        claimResults(state.mode);
-        back.go();
-      });
-    }
-    bindWhy();
+    results.innerHTML = html`${backButton()}
+      ${stationCard(s, "Estación")}
+      <div class="card" id="station-actions" data-action="place" data-ref="station:${s.id}" data-label="${s.name}">${placeActions()}</div>
+      ${s.nearestStations.length ? nearestStationsCard(s.nearestStations) : ""}
+      ${data.nearby.length ? nearbyCard(data.nearby, "Lugares cercanos") : ""}
+      ${whyPanel(null, data.queries)}`;
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 16));
   } catch (error) {
-    if (ownsPanel()) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (ownsPanel()) showMessage("error", error.message);
   }
 }
 
 function exampleButtons(examples) {
-  return `<div class="popup-actions">${examples.map((e) => `<button type="button" data-example="${esc(e)}">${esc(e)}</button>`).join("")}</div>`;
+  return html`<div class="popup-actions">${examples.map((e) => html`<button type="button" data-action="example" data-example="${e}">${e}</button>`)}</div>`;
 }
 
 function welcome() {
-  results.innerHTML = `<div class="card"><h2>¿A dónde vas?</h2>
+  results.innerHTML = card("¿A dónde vas?", null, html`
     <p class="sub">Elige el origen con tu ubicación o haciendo clic en el mapa, y escribe el destino:
     una calle (el número se ignora), un lugar, un tipo de lugar o una estación.</p>
-    <p class="sub">Ejemplos desde la Puerta del Sol:</p>${exampleButtons(EXAMPLES)}</div>`;
+    <p class="sub">Ejemplos desde la Puerta del Sol:</p>${exampleButtons(EXAMPLES)}`);
 }
 
 function exploreWelcome() {
-  results.innerHTML = `<div class="card"><h2>¿Qué estaciones hay cerca?</h2>
+  results.innerHTML = card("¿Qué estaciones hay cerca?", null, html`
     <p class="sub">Escribe una calle, un lugar, un tipo de lugar o una estación, o haz clic en el mapa,
     y verás las estaciones BiciMAD que tiene alrededor, de la más cercana a la más lejana.</p>
-    <p class="sub">Ejemplos:</p>${exampleButtons(EXPLORE_EXAMPLES)}</div>`;
+    <p class="sub">Ejemplos:</p>${exampleButtons(EXPLORE_EXAMPLES)}`);
 }
 
 // Los ejemplos escriben en el campo del modo activo y muestran sus sugerencias.
-results.addEventListener("click", (event) => {
-  const example = event.target.dataset.example;
-  if (!example) return;
+function useExample(example) {
   let input = $("#center-input");
   if (state.mode === "route") {
     state.from = { ref: `pt:${SOL[0]},${SOL[1]}`, label: "Puerta del Sol", lat: SOL[0], lon: SOL[1] };
@@ -736,7 +748,40 @@ results.addEventListener("click", (event) => {
   input.value = example;
   input.focus();
   input.dispatchEvent(new Event("input"));
+}
+
+// ---------- eventos del panel ----------
+
+// Lo que se pinta en #results dice con data-action qué hace al pulsarlo, y con otros data-*, sobre
+// qué. Un solo listener atiende todo el panel: no hay que enlazar nada en cada pintado y sigue
+// funcionando cuando se vuelve a pintar solo una parte (la lista de Explorar al cambiar los filtros).
+const resultActions = {
+  station: (el) => showStation(el.dataset.station),
+  option: (el) => {
+    state.shown = el.dataset.mode;
+    showPlan();
+  },
+  back: () => goBack(),
+  example: (el) => useExample(el.dataset.example),
+  // Botones de placeActions en la ficha: el sitio va en el contenedor y la acción en cada botón.
+  place: (el, event) => {
+    const act = event.target.closest("[data-act]")?.dataset.act;
+    if (act) usePlace(act, { ref: el.dataset.ref, label: el.dataset.label });
+  },
+};
+
+results.addEventListener("click", (event) => {
+  const el = event.target.closest("[data-action]");
+  if (!el) return;
+  event.preventDefault();
+  resultActions[el.dataset.action](el, event);
 });
+
+// El panel «¿Por qué ontología?» se queda abierto o cerrado al volver a pintar. toggle no burbujea,
+// así que se escucha en la fase de captura.
+results.addEventListener("toggle", (event) => {
+  if (event.target.matches("details.why")) state.whyOpen = event.target.open;
+}, true);
 
 // ---------- Explorar ----------
 
@@ -754,7 +799,7 @@ function setCenter(place) {
 async function exploreAround(place, loading = true) {
   const mine = ++exploreSequence;
   const ownsPanel = claimResults("explore");
-  if (loading) results.innerHTML = '<p class="loading">Buscando estaciones…</p>';
+  if (loading) showMessage("loading", "Buscando estaciones…");
   try {
     const data = await api("/api/explore", { ref: place.ref, label: place.label, radius: state.radius });
     if (mine !== exploreSequence) return;
@@ -766,7 +811,7 @@ async function exploreAround(place, loading = true) {
     if (mine !== exploreSequence) return;
     state.explore = null;
     clearExplore();
-    if (ownsPanel()) results.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+    if (ownsPanel()) showMessage("error", error.message);
   }
 }
 
@@ -779,19 +824,24 @@ $("#explore-form").addEventListener("change", (event) => {
 
 function centerCard(center, place) {
   const [kind, id] = place.ref.split(":");
-  const card = kind === "station" ? `<p class="sub"><a href="#" data-station="${esc(id)}">Ver la ficha de la estación</a></p>` : "";
-  return `<div class="card center-card"><p class="kicker">Lugar</p>
-    <h2>${esc(center.label)} ${badge(center.source)} ${center.approximate ? badge("warn", "aproximado") : ""}</h2>
-    <p class="sub">${esc(center.note)}</p>${card}</div>`;
+  const link = kind === "station" ? html`<p class="sub"><a href="#" data-action="station" data-station="${id}">Ver la ficha de la estación</a></p>` : "";
+  return html`<div class="card center-card"><p class="kicker">Lugar</p>
+    <h2>${center.label} ${badge(center.source)} ${center.approximate ? badge("warn", "aproximado") : ""}</h2>
+    <p class="sub">${center.note}</p>${link}</div>`;
 }
 
 function stationsLabel(count) {
   return count === 1 ? "1 estación" : `${count} estaciones`;
 }
 
+// Nombre de un radio de Explorar: el texto de su botón en el formulario («300 m», «1 km»).
+function radiusLabel(radius) {
+  return $(`#explore-form input[name="radius"][value="${radius}"] + span`).textContent;
+}
+
 // Lista de estaciones del radio, con los filtros del mapa aplicados y su recuento.
 function exploreStationsCard(data) {
-  const radius = RADII[data.radius];
+  const radius = radiusLabel(data.radius);
   const total = data.stations.length;
   const shown = data.stations.filter(passesFilters);
   let count;
@@ -804,16 +854,13 @@ function exploreStationsCard(data) {
   } else {
     count = `${shown.length} de ${stationsLabel(total)}, de la más cercana a la más lejana en línea recta. Los filtros del mapa ocultan el resto.`;
   }
-  const list = shown.length ? `<ul class="places">${shown.map(stationItem).join("")}</ul>` : "";
-  return `<div class="card" id="explore-stations"><h2>Estaciones a ${radius} o menos ${badge("bicimad")}</h2>
-    <p class="sub">${count}</p>${list}</div>`;
+  const list = shown.length ? html`<ul class="places">${shown.map(stationItem)}</ul>` : "";
+  return card(`Estaciones a ${radius} o menos`, "bicimad", html`<p class="sub">${count}</p>${list}`, "explore-stations");
 }
 
 function renderExplore() {
   const data = state.explore;
-  results.innerHTML = centerCard(data.center, data.place) + exploreStationsCard(data)
-    + whyPanel(data.contributions, data.queries);
-  bindWhy();
+  results.innerHTML = html`${centerCard(data.center, data.place)}${exploreStationsCard(data)}${whyPanel(data.contributions, data.queries)}`;
 }
 
 function showExplore() {
