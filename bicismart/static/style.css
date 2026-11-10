@@ -796,6 +796,9 @@ details.why > div { padding: 0 14px 12px; }
   font-size: 12px;
 }
 
+/* Botón para desplegar el recuadro: solo en pantallas estrechas (ver la media query) */
+.filter-toggle { display: none; }
+
 /* ==========================================================================
    Pantallas estrechas: mapa arriba y panel debajo
    ========================================================================== */
@@ -821,5 +824,49 @@ details.why > div { padding: 0 14px 12px; }
   .tabs, .trip, .status, #results {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  /* Recuadro de filtros del mapa: plegado por defecto para no tapar el mapa ni el círculo de
+     Explorar; el botón lo despliega (.open). */
+  .filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .filter-toggle::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin: 0 2px 3px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg);
+  }
+
+  .station-filter.open .filter-toggle { margin-bottom: 4px; }
+
+  .station-filter.open .filter-toggle::after {
+    margin: 3px 2px 0;
+    transform: rotate(-135deg);
+  }
+
+  .station-filter:not(.open) fieldset { display: none; }
+
+  /* El botón ya hace de título: la leyenda queda solo para los lectores de pantalla. */
+  .station-filter legend {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

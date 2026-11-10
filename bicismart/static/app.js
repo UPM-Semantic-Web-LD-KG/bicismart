@@ -181,7 +181,9 @@ const MIN_CAPACITY_OPTIONS = [10, 20, 25, 30];
 const stationFilter = L.control({ position: "topright" });
 stationFilter.onAdd = () => {
   const form = L.DomUtil.create("form", "station-filter");
-  form.innerHTML = html`<fieldset>
+  // En pantallas estrechas el recuadro empieza plegado para no tapar el mapa (style.css) y el botón
+  // .filter-toggle, que hace de título, lo despliega. En las anchas el botón no se ve.
+  form.innerHTML = html`<button type="button" class="filter-toggle" aria-expanded="false" aria-controls="filter-fields">Estaciones ${badge("bicimad")}</button><fieldset id="filter-fields">
     <legend>Estaciones ${badge("bicimad")}</legend>
     <label><input type="checkbox" id="filter-usable"> Solo en servicio</label>
     <label>Mínimo de bases
@@ -196,6 +198,8 @@ stationFilter.onAdd = () => {
   L.DomEvent.disableScrollPropagation(form);
   form.addEventListener("submit", (event) => event.preventDefault());
   form.addEventListener("change", applyStationFilters);
+  const toggle = $(".filter-toggle", form);
+  toggle.addEventListener("click", () => toggle.setAttribute("aria-expanded", form.classList.toggle("open")));
   return form;
 };
 stationFilter.addTo(map);
