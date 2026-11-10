@@ -129,6 +129,23 @@ const routeLayer = L.layerGroup().addTo(map);
 map.createPane("explore-area").style.zIndex = 350;
 const exploreLayer = L.layerGroup().addTo(map);
 
+// Colores de lo que se dibuja en el mapa. Salen de las variables de style.css, el único sitio
+// donde se definen; la hoja de estilos ya está cargada cuando se ejecuta este script.
+const COLORS = (() => {
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(`--${name}`).trim();
+  return {
+    station: color("bicimad"), // estación en servicio
+    stationOff: color("station-off"), // fuera de servicio
+    edge: color("paper"), // borde de las estaciones y relleno de las de la ruta
+    onStreet: color("callejero"), // Explorar: estación de la calle buscada
+    inRadius: color("ink"), // Explorar: otra estación del radio
+    explore: color("explore"), // Explorar: círculo del radio
+    bike: color("bike"),
+    walk: color("walk"),
+  };
+})();
+
 // Botones para usar un sitio: «Salir de aquí» e «Ir aquí» (modo Ruta) y, en Explorar, «Explorar aquí».
 // extra añade otros botones, como { act: "card", label: "Ver ficha" }. Cada botón lleva su acción
 // en data-act.
@@ -215,12 +232,12 @@ function exploreInside() {
 // del Callejero, si están en la calle buscada) y las demás se atenúan, sin ocultarse.
 function stationStyle(station, inside = null) {
   const style = {
-    radius: 4.5, weight: 1, color: "#ffffff", opacity: 1,
-    fillColor: station.usable ? "#1a7f37" : "#9ca3af", fillOpacity: 0.95,
+    radius: 4.5, weight: 1, color: COLORS.edge, opacity: 1,
+    fillColor: station.usable ? COLORS.station : COLORS.stationOff, fillOpacity: 0.95,
   };
   if (!inside) return style;
   const hit = inside.get(station.id);
-  if (hit) return { ...style, radius: 7, weight: 2.5, color: hit.onStreet ? "#c2410c" : "#1c2530", fillOpacity: 1 };
+  if (hit) return { ...style, radius: 7, weight: 2.5, color: hit.onStreet ? COLORS.onStreet : COLORS.inRadius, fillOpacity: 1 };
   return { ...style, radius: 4, opacity: 0.6, fillOpacity: 0.4 };
 }
 
@@ -292,7 +309,7 @@ function drawExplore() {
   for (const [lat, lon] of data.centers) {
     L.circle([lat, lon], {
       pane: "explore-area", radius: data.radius, interactive: false,
-      color: "#d0112b", weight: 2, opacity: 0.8, fillColor: "#d0112b", fillOpacity: 0.06,
+      color: COLORS.explore, weight: 2, opacity: 0.8, fillColor: COLORS.explore, fillOpacity: 0.06,
     }).addTo(exploreLayer);
     bounds.extend(L.latLng(lat, lon).toBounds(data.radius * 2));
   }
@@ -323,8 +340,8 @@ function drawPlan() {
 
   const draw = (leg, faded) => {
     const style = leg.mode === "bike"
-      ? { color: "#d0112b", weight: 5, opacity: faded ? 0.25 : 0.9 }
-      : { color: "#374151", weight: 4, dashArray: "1 8", lineCap: "round", opacity: faded ? 0.3 : 0.95 };
+      ? { color: COLORS.bike, weight: 5, opacity: faded ? 0.25 : 0.9 }
+      : { color: COLORS.walk, weight: 4, dashArray: "1 8", lineCap: "round", opacity: faded ? 0.3 : 0.95 };
     L.polyline(leg.geometry, style).addTo(routeLayer);
     if (!faded) bounds.push(...leg.geometry);
   };
@@ -333,7 +350,7 @@ function drawPlan() {
 
   if (showBike) {
     for (const s of [plan.bike.fromStation, plan.bike.toStation]) {
-      L.circleMarker([s.lat, s.lon], { radius: 8, color: "#d0112b", weight: 3, fillColor: "#ffffff", fillOpacity: 1 })
+      L.circleMarker([s.lat, s.lon], { radius: 8, color: COLORS.bike, weight: 3, fillColor: COLORS.edge, fillOpacity: 1 })
         .bindTooltip(esc(s.name))
         .addTo(routeLayer);
     }

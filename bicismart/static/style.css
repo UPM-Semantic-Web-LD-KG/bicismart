@@ -23,6 +23,10 @@
   --walk: #374151;
   --bike: #d0112b;
 
+  /* Mapa (app.js lee estas variables y las de arriba con getComputedStyle; ver COLORS) */
+  --station-off: #9ca3af; /* estación fuera de servicio */
+  --explore: var(--accent); /* círculo del radio de Explorar */
+
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
