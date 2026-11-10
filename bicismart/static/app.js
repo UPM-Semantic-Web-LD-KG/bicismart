@@ -139,7 +139,7 @@ function placeActions(extra = []) {
     { act: "to", label: "Ir aquí" },
     ...extra,
   ];
-  return html`<div class="popup-actions">${buttons.map(({ act, label }) => html`<button type="button" data-act="${act}">${label}</button>`)}</div>`;
+  return html`<div class="actions">${buttons.map(({ act, label }) => html`<button type="button" data-act="${act}">${label}</button>`)}</div>`;
 }
 
 // Los botones de placeActions para un popup del mapa. Los popups quedan fuera de #results, así que
@@ -591,7 +591,7 @@ function stationCard(station, title) {
 function nearbyCard(places, title) {
   const items = places.map((p) => html`<li><a href="${p.link}" target="_blank" rel="noopener">${p.label}</a>
     <span>${p.categories.join(", ")} · ${distanceLabel(p.distance)}</span></li>`);
-  return card(title, "wikidata", html`<ul class="places">${items}</ul>`);
+  return card(title, "wikidata", html`<ul class="list">${items}</ul>`);
 }
 
 // Una estación en una lista: enlace a su ficha, estado, bases y distancia. En Explorar, las
@@ -603,7 +603,7 @@ function stationItem(s) {
 }
 
 function nearestStationsCard(stations, title = "Estaciones más cercanas") {
-  return card(title, "bicimad", html`<ul class="places">${stations.map(stationItem)}</ul>`);
+  return card(title, "bicimad", html`<ul class="list">${stations.map(stationItem)}</ul>`);
 }
 
 function queryItem(q) {
@@ -720,7 +720,7 @@ async function showStation(id) {
 }
 
 function exampleButtons(examples) {
-  return html`<div class="popup-actions">${examples.map((e) => html`<button type="button" data-action="example" data-example="${e}">${e}</button>`)}</div>`;
+  return html`<div class="actions">${examples.map((e) => html`<button type="button" data-action="example" data-example="${e}">${e}</button>`)}</div>`;
 }
 
 function welcome() {
@@ -854,7 +854,7 @@ function exploreStationsCard(data) {
   } else {
     count = `${shown.length} de ${stationsLabel(total)}, de la más cercana a la más lejana en línea recta. Los filtros del mapa ocultan el resto.`;
   }
-  const list = shown.length ? html`<ul class="places">${shown.map(stationItem)}</ul>` : "";
+  const list = shown.length ? html`<ul class="list">${shown.map(stationItem)}</ul>` : "";
   return card(`Estaciones a ${radius} o menos`, "bicimad", html`<p class="sub">${count}</p>${list}`, "explore-stations");
 }
 
