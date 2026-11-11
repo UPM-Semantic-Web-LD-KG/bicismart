@@ -20,11 +20,38 @@ cada una frente al CSV.
 
 ## Ejecutar
 
+### 1. Instalar uv
+
+El proyecto usa [uv](https://docs.astral.sh/uv/), un gestor de proyectos de Python. uv lee
+`pyproject.toml` y `uv.lock`, crea un entorno virtual en `.venv/` e instala exactamente las
+versiones fijadas. Si hace falta, también descarga la versión de Python del proyecto (3.12,
+indicada en `.python-version`), así que no hay que instalar Python aparte.
+
+Linux y macOS:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Si ya tienes Python, también vale `pip install uv`, o `brew install uv` en macOS. Después abre una
+terminal nueva para que `uv` esté en el `PATH` y comprueba que funciona con `uv --version`.
+
+### 2. Descargar y arrancar
+
 ```bash
 git clone https://github.com/UPM-Semantic-Web-LD-KG/bicismart.git
 cd bicismart
 uv run main.py
 ```
+
+La primera vez, `uv run` prepara el entorno: descarga Python 3.12 si no lo tienes e instala las
+dependencias. Las siguientes veces arranca directamente.
 
 Abrir http://127.0.0.1:8000. En el primer arranque se descargan de Wikidata los datos de las
 calles enlazadas y los lugares de interés de Madrid (unos 15 s), y se guardan en `data/`. En los
